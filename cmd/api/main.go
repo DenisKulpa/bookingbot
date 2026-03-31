@@ -1,0 +1,43 @@
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/DenisKulpa/bookingbot/internal/config"
+	"github.com/DenisKulpa/bookingbot/internal/db"
+	"github.com/DenisKulpa/bookingbot/internal/handler"
+	"github.com/DenisKulpa/bookingbot/internal/repository"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+)
+
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
+	pool, err := db.New(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	defer pool.Close()
+
+	zoneRepo := repository.NewZoneRepository(pool)
+	zoneHandler := handler.NewZoneHandler(zoneRepo)
+
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/districts", zoneHandler.GetDistricts)
+		r.Get("/districts/{id}", zoneHandler.GetDistrictDetail)
+	})
+
+	log.Printf("Server started on :%s", cfg.ServerPort)
+	if err := http.ListenAndServe(":"+cfg.ServerPort, r); err != nil {
+		log.Fatalf("server: %v", err)
+	}
+}
