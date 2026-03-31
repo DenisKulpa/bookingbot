@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -21,6 +22,7 @@ func NewZoneHandler(repo *repository.ZoneRepository) *ZoneHandler {
 func (h *ZoneHandler) GetDistricts(w http.ResponseWriter, r *http.Request) {
 	zones, err := h.repo.GetTopLevel(r.Context())
 	if err != nil {
+		log.Printf("GetDistricts error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to fetch districts")
 		return
 	}
@@ -38,6 +40,7 @@ func (h *ZoneHandler) GetDistrictDetail(w http.ResponseWriter, r *http.Request) 
 
 	detail, err := h.repo.GetDistrictDetail(r.Context(), id)
 	if err != nil {
+		log.Printf("GetDistrictDetail error (id=%d): %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to fetch district detail")
 		return
 	}
