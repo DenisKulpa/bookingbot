@@ -18,12 +18,12 @@ func NewZoneRepository(db *sql.DB) *ZoneRepository {
 }
 
 func (r *ZoneRepository) GetTopLevel(ctx context.Context) ([]*model.Zone, error) {
-	rows, err := r.db.QueryContext(ctx, `,
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, emoji, short_desc, price_level, best_for, sort_order
 		FROM zones
 		WHERE parent_id IS NULL AND is_active = 1
 		ORDER BY sort_order ASC
-	`)
+	`) 
 	if err != nil {
 		return nil, fmt.Errorf("GetTopLevel query: %w", err)
 	}
@@ -62,7 +62,7 @@ func (r *ZoneRepository) GetDistrictDetail(ctx context.Context, id int) (*model.
 }
 
 func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, error) {
-	row := r.db.QueryRowContext(ctx, `,
+	row := r.db.QueryRowContext(ctx, `
 		SELECT
 			id, parent_id, city, name, emoji,
 			short_desc, full_desc, target_audience,
@@ -104,7 +104,7 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 }
 
 func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*model.Zone, error) {
-	rows, err := r.db.QueryContext(ctx, `,
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, short_desc, full_desc, sort_order
 		FROM zones
 		WHERE parent_id = ? AND is_active = 1
