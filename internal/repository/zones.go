@@ -23,9 +23,9 @@ func (r *ZoneRepository) GetTopLevel(ctx context.Context) ([]*model.Zone, error)
 		FROM zones
 		WHERE parent_id IS NULL AND is_active = 1
 		ORDER BY sort_order ASC
-	`) 
+	`)
 	if err != nil {
-		return nil, fmt.Errorf("GetTopLevel query: %w", err)
+		return nil, fmt.Errorf("GetTopLevel query: %%w", err)
 	}
 	defer rows.Close()
 
@@ -35,8 +35,8 @@ func (r *ZoneRepository) GetTopLevel(ctx context.Context) ([]*model.Zone, error)
 		if err := rows.Scan(
 			&z.ID, &z.Name, &z.Emoji,
 			&z.ShortDesc, &z.PriceLevel, &z.BestFor, &z.SortOrder,
-			); err != nil {
-			return nil, fmt.Errorf("GetTopLevel scan: %w", err)
+		); err != nil {
+			return nil, fmt.Errorf("GetTopLevel scan: %%w", err)
 		}
 		zones = append(zones, z)
 	}
@@ -83,7 +83,7 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 		&z.PriceLevel, &z.BestFor, &z.SeasonNote, &z.SortOrder,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("getZoneByID scan: %w", err)
+		return nil, fmt.Errorf("getZoneByID scan: %%w", err)
 	}
 
 	if parentID.Valid {
@@ -111,7 +111,7 @@ func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*mode
 		ORDER BY sort_order ASC
 	`, parentID)
 	if err != nil {
-		return nil, fmt.Errorf("getSubzones query: %w", err)
+		return nil, fmt.Errorf("getSubzones query: %%w", err)
 	}
 	defer rows.Close()
 
@@ -119,7 +119,7 @@ func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*mode
 	for rows.Next() {
 		z := &model.Zone{}
 		if err := rows.Scan(&z.ID, &z.Name, &z.ShortDesc, &z.FullDesc, &z.SortOrder); err != nil {
-			return nil, fmt.Errorf("getSubzones scan: %w", err)
+			return nil, fmt.Errorf("getSubzones scan: %%w", err)
 		}
 		subzones = append(subzones, z)
 	}

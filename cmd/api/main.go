@@ -15,12 +15,12 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		log.Fatalf("config: %%v", err)
 	}
 
 	database, err := db.New(cfg.SQLitePath)
 	if err != nil {
-		log.Fatalf("db: %v", err)
+		log.Fatalf("db: %%v", err)
 	}
 	defer database.Close()
 
@@ -36,8 +36,8 @@ func main() {
 		r.Get("/districts/{id}", zoneHandler.GetDistrictDetail)
 	})
 
-	log.Printf("Server started on :%s", cfg.ServerPort)
+	log.Printf("Server started on :%%s", cfg.ServerPort)
 	if err := http.ListenAndServe(":"+cfg.ServerPort, r); err != nil {
-		log.Fatalf("server: %v", err)
+		log.Fatalf("server: %%v", err)
 	}
 }
