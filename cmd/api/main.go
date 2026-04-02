@@ -18,13 +18,13 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	pool, err := db.New(cfg.DatabaseURL)
+	database, err := db.New(cfg.SQLitePath)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
-	defer pool.Close()
+	defer database.Close()
 
-	zoneRepo := repository.NewZoneRepository(pool)
+	zoneRepo := repository.NewZoneRepository(database)
 	zoneHandler := handler.NewZoneHandler(zoneRepo)
 
 	r := chi.NewRouter()
