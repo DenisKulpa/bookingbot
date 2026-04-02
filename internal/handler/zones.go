@@ -18,12 +18,11 @@ func NewZoneHandler(repo *repository.ZoneRepository) *ZoneHandler {
 	return &ZoneHandler{repo: repo}
 }
 
-// GET /api/districts
+// GET
 func (h *ZoneHandler) GetDistricts(w http.ResponseWriter, r *http.Request) {
 	zones, err := h.repo.GetTopLevel(r.Context())
 	if err != nil {
 		log.Printf("GetDistricts error: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch districts")
 		return
 	}
 	writeJSON(w, http.StatusOK, zones)
