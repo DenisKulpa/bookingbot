@@ -3,3 +3,6 @@
 *.exe~
 bin/
 tmp/
+*.db
+*.db-shm
+*.db-wal
