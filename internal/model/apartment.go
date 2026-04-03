@@ -25,7 +25,7 @@ type Apartment struct {
 func (a *Apartment) PhotosJSON() (string, error) {
 	b, err := json.Marshal(a.Photos)
 	if err != nil {
-		return "[]", err
+		return "", err
 	}
 	return string(b), nil
 }
@@ -33,7 +33,7 @@ func (a *Apartment) PhotosJSON() (string, error) {
 func (a *Apartment) AmenitiesJSON() (string, error) {
 	b, err := json.Marshal(a.Amenities)
 	if err != nil {
-		return "[]", err
+		return "", err
 	}
 	return string(b), nil
 }
