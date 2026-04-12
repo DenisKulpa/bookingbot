@@ -27,6 +27,9 @@ func main() {
 	zoneRepo := repository.NewZoneRepository(database)
 	zoneHandler := handler.NewZoneHandler(zoneRepo)
 
+	apartmentRepo := repository.NewApartmentRepository(database)
+	apartmentHandler := handler.NewApartmentHandler(apartmentRepo)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -34,6 +37,7 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/districts", zoneHandler.GetDistricts)
 		r.Get("/districts/{id}", zoneHandler.GetDistrictDetail)
+		r.Get("/districts/{id}/apartments", apartmentHandler.GetApartments)
 	})
 
 	log.Printf("Server started on :%s", cfg.ServerPort)

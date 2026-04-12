@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/joho/godotenv"
 )
@@ -14,7 +16,9 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	_, filename, _, _ := runtime.Caller(0)
+	rootEnv := filepath.Join(filepath.Dir(filename), "..", "..", ".env")
+	_ = godotenv.Load(".env", "../.env", rootEnv)
 
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {

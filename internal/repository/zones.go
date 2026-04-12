@@ -21,7 +21,7 @@ func (r *ZoneRepository) GetTopLevel(ctx context.Context) ([]*model.Zone, error)
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, emoji, short_desc, price_level, best_for, sort_order
 		FROM zones
-		WHERE parent_id IS NULL AND is_active = 1
+		WHERE (parent_id IS NULL OR parent_id = 0) AND is_active = 1
 		ORDER BY sort_order ASC
 	`)
 	if err != nil {
@@ -29,14 +29,28 @@ func (r *ZoneRepository) GetTopLevel(ctx context.Context) ([]*model.Zone, error)
 	}
 	defer rows.Close()
 
-	var zones []*model.Zone
+	zones := make([]*model.Zone, 0)
 	for rows.Next() {
 		z := &model.Zone{}
+		var emojiRaw, shortDescRaw, bestForRaw sql.NullString
+		var priceLevelRaw sql.NullInt64
 		if err := rows.Scan(
-			&z.ID, &z.Name, &z.Emoji,
-			&z.ShortDesc, &z.PriceLevel, &z.BestFor, &z.SortOrder,
+			&z.ID, &z.Name, &emojiRaw,
+			&shortDescRaw, &priceLevelRaw, &bestForRaw, &z.SortOrder,
 		); err != nil {
 			return nil, fmt.Errorf("GetTopLevel scan: %%w", err)
+		}
+		if emojiRaw.Valid {
+			z.Emoji = emojiRaw.String
+		}
+		if shortDescRaw.Valid {
+			z.ShortDesc = shortDescRaw.String
+		}
+		if bestForRaw.Valid {
+			z.BestFor = bestForRaw.String
+		}
+		if priceLevelRaw.Valid {
+			z.PriceLevel = int(priceLevelRaw.Int64)
 		}
 		zones = append(zones, z)
 	}
@@ -74,16 +88,41 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 
 	z := &model.Zone{}
 	var parentID sql.NullInt64
+	var emojiRaw, shortDescRaw, fullDescRaw, targetAudienceRaw sql.NullString
 	var prosRaw, consRaw, housingRaw sql.NullString
+	var bestForRaw, seasonNoteRaw sql.NullString
+	var priceLevelRaw sql.NullInt64
 
 	err := row.Scan(
-		&z.ID, &parentID, &z.City, &z.Name, &z.Emoji,
-		&z.ShortDesc, &z.FullDesc, &z.TargetAudience,
+		&z.ID, &parentID, &z.City, &z.Name, &emojiRaw,
+		&shortDescRaw, &fullDescRaw, &targetAudienceRaw,
 		&prosRaw, &consRaw, &housingRaw,
-		&z.PriceLevel, &z.BestFor, &z.SeasonNote, &z.SortOrder,
+		&priceLevelRaw, &bestForRaw, &seasonNoteRaw, &z.SortOrder,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getZoneByID scan: %%w", err)
+	}
+
+	if emojiRaw.Valid {
+		z.Emoji = emojiRaw.String
+	}
+	if shortDescRaw.Valid {
+		z.ShortDesc = shortDescRaw.String
+	}
+	if fullDescRaw.Valid {
+		z.FullDesc = fullDescRaw.String
+	}
+	if targetAudienceRaw.Valid {
+		z.TargetAudience = targetAudienceRaw.String
+	}
+	if bestForRaw.Valid {
+		z.BestFor = bestForRaw.String
+	}
+	if seasonNoteRaw.Valid {
+		z.SeasonNote = seasonNoteRaw.String
+	}
+	if priceLevelRaw.Valid {
+		z.PriceLevel = int(priceLevelRaw.Int64)
 	}
 
 	if parentID.Valid {
@@ -91,13 +130,19 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 		z.ParentID = &v
 	}
 	if prosRaw.Valid {
-		_ = json.Unmarshal([]byte(prosRaw.String), &z.Pros)
+		if prosRaw.String != "" {
+			_ = json.Unmarshal([]byte(prosRaw.String), &z.Pros)
+		}
 	}
 	if consRaw.Valid {
-		_ = json.Unmarshal([]byte(consRaw.String), &z.Cons)
+		if consRaw.String != "" {
+			_ = json.Unmarshal([]byte(consRaw.String), &z.Cons)
+		}
 	}
 	if housingRaw.Valid {
-		_ = json.Unmarshal([]byte(housingRaw.String), &z.HousingTypes)
+		if housingRaw.String != "" {
+			_ = json.Unmarshal([]byte(housingRaw.String), &z.HousingTypes)
+		}
 	}
 
 	return z, nil
@@ -118,8 +163,15 @@ func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*mode
 	var subzones []*model.Zone
 	for rows.Next() {
 		z := &model.Zone{}
-		if err := rows.Scan(&z.ID, &z.Name, &z.ShortDesc, &z.FullDesc, &z.SortOrder); err != nil {
+		var shortDescRaw, fullDescRaw sql.NullString
+		if err := rows.Scan(&z.ID, &z.Name, &shortDescRaw, &fullDescRaw, &z.SortOrder); err != nil {
 			return nil, fmt.Errorf("getSubzones scan: %%w", err)
+		}
+		if shortDescRaw.Valid {
+			z.ShortDesc = shortDescRaw.String
+		}
+		if fullDescRaw.Valid {
+			z.FullDesc = fullDescRaw.String
 		}
 		subzones = append(subzones, z)
 	}

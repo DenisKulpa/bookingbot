@@ -6,12 +6,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 
 	_ "modernc.org/sqlite"
 )
 
 func New(dataSourceName string) (*sql.DB, error) {
+	log.Printf("db: using sqlite file %s", dataSourceName)
 	database, err := sql.Open("sqlite", dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("db.New: %w", err)
@@ -37,6 +39,9 @@ func New(dataSourceName string) (*sql.DB, error) {
 }
 
 func runMigrations(db *sql.DB) error {
+	_, filename, _, _ := runtime.Caller(0)
+	migrationsDir := filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
+
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    TEXT PRIMARY KEY,
 		applied_at DATETIME NOT NULL DEFAULT (datetime('now'))
@@ -45,7 +50,7 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	files, err := filepath.Glob("migrations/*.up.sql")
+	files, err := filepath.Glob(filepath.Join(migrationsDir, "*.up.sql"))
 	if err != nil {
 		return fmt.Errorf("glob migrations: %w", err)
 	}
