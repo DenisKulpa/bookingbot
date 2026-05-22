@@ -32,6 +32,51 @@ func (r *ApartmentRepository) GetByZone(ctx context.Context, zoneID int, onlyAva
 	return r.queryArgs(ctx, q, args...)
 }
 
+func (r *ApartmentRepository) GetByID(ctx context.Context, id int) (*model.Apartment, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_id, zone_id, title, description, address,
+		       rooms, max_guests, price_per_night, photos, amenities,
+		       is_available, created_at, updated_at
+		FROM apartments
+		WHERE id = ?
+	`, id)
+
+	a := &model.Apartment{}
+	var (
+		zoneID       sql.NullInt64
+		description  sql.NullString
+		address      sql.NullString
+		photosRaw    string
+		amenitiesRaw string
+	)
+	if err := row.Scan(
+		&a.ID, &a.OwnerID, &zoneID,
+		&a.Title, &description, &address,
+		&a.Rooms, &a.MaxGuests, &a.PricePerNight,
+		&photosRaw, &amenitiesRaw,
+		&a.IsAvailable, &a.CreatedAt, &a.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if zoneID.Valid {
+		id := int(zoneID.Int64)
+		a.ZoneID = &id
+	}
+	if description.Valid {
+		a.Description = description.String
+	}
+	if address.Valid {
+		a.Address = address.String
+	}
+	if err := a.ScanPhotos(photosRaw); err != nil {
+		return nil, fmt.Errorf("parse photos: %w", err)
+	}
+	if err := a.ScanAmenities(amenitiesRaw); err != nil {
+		return nil, fmt.Errorf("parse amenities: %w", err)
+	}
+	return a, nil
+}
+
 func (r *ApartmentRepository) queryArgs(ctx context.Context, q string, args ...any) ([]*model.Apartment, error) {
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {

@@ -38,6 +38,7 @@ func main() {
 		r.Get("/districts", zoneHandler.GetDistricts)
 		r.Get("/districts/{id}", zoneHandler.GetDistrictDetail)
 		r.Get("/districts/{id}/apartments", apartmentHandler.GetApartments)
+		r.Get("/apartments/{id}", apartmentHandler.GetApartmentDetail)
 	})
 
 	log.Printf("Server started on :%s", cfg.ServerPort)

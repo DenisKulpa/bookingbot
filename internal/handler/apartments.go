@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,6 +16,29 @@ type ApartmentHandler struct {
 
 func NewApartmentHandler(repo *repository.ApartmentRepository) *ApartmentHandler {
 	return &ApartmentHandler{repo: repo}
+}
+
+// GET /api/apartments/{id}
+func (h *ApartmentHandler) GetApartmentDetail(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid apartment id")
+		return
+	}
+
+	apartment, err := h.repo.GetByID(r.Context(), id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "apartment not found")
+		return
+	}
+	if err != nil {
+		log.Printf("GetApartmentDetail error (id=%d): %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch apartment")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apartment)
 }
 
 // GET /api/districts/{id}/apartments?available=true
