@@ -63,6 +63,14 @@ func (c *Client) EditMessage(chatID int64, messageID int, text string, buttons [
 	return err
 }
 
+// sendMarkdownV2 sends a message using MarkdownV2 parse mode
+func (c *Client) sendMarkdownV2(chatID int64, text string) error {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdownV2
+	_, err := c.bot.Send(msg)
+	return err
+}
+
 // GetUpdates returns a channel with updates from Telegram
 func (c *Client) GetUpdates(timeout int) (tgbotapi.UpdatesChannel, error) {
 	u := tgbotapi.NewUpdate(0)
@@ -73,7 +81,11 @@ func (c *Client) GetUpdates(timeout int) (tgbotapi.UpdatesChannel, error) {
 
 // SetWebhook sets webhook URL for receiving updates
 func (c *Client) SetWebhook(webhookURL string) error {
-	_, err := c.bot.Request(tgbotapi.NewSetWebhook(webhookURL))
+	wh, err := tgbotapi.NewWebhook(webhookURL)
+	if err != nil {
+		return fmt.Errorf("NewWebhook: %w", err)
+	}
+	_, err = c.bot.Request(wh)
 	return err
 }
 
