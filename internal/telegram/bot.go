@@ -12,15 +12,107 @@ import (
 )
 
 const (
-	callbackDistrict  = "district:"
-	callbackApartment = "apartment:"
-	callbackBack      = "back:districts"
+	callbackDistrict   = "district:"
+	callbackApartment  = "apartment:"
+	callbackBack       = "back:districts"
+	callbackFilterCat  = "filter_cat:"
+	callbackFilter     = "filter:"
+	callbackBackFilters = "back:filters"
 )
 
+// ─── Filter data ─────────────────────────────────────────────────────────────
+
+type filterOption struct {
+	Code  string
+	Label string
+}
+
+type filterCategory struct {
+	Code    string
+	Label   string
+	Options []filterOption
+}
+
+var filterCategories = []filterCategory{
+	{Code: "location", Label: "📍 Локация", Options: []filterOption{
+		{"zone_gagarin_plaza", "Гагарин Плаза"},
+		{"zone_elegiya_park", "Элегия Парк"},
+		{"zone_rodos_ellada", "Родос / Эллада"},
+		{"zone_akropol", "Акрополь"},
+		{"zone_kamanina", "Каманина"},
+		{"zone_morskaya", "Морская сторона"},
+		{"zone_genuezskaya", "Генуэзская"},
+		{"zone_arkadiyskaya_alleya", "Аркадийская аллея"},
+		{"zone_ibiza_itaka", "Район Ibiza / Itaka"},
+		{"zone_tihaya_arkadiya", "Тихая Аркадия"},
+		{"zone_park_pobedy", "Ближе к Парку Победы"},
+		{"zone_trassa_zdorovya", "Ближе к трассе здоровья"},
+	}},
+	{Code: "sea_distance", Label: "🌊 Расстояние до моря", Options: []filterOption{
+		{"sea_1_3_min", "До моря 1–3 мин"},
+		{"sea_5_min", "До моря 5 мин"},
+		{"sea_first_line", "Первая линия"},
+		{"sea_direct_view", "Вид прямо на море"},
+		{"sea_side_view", "Боковой вид на море"},
+		{"view_city", "Вид на город"},
+		{"view_sunset", "Вид на закат"},
+		{"view_yard", "Вид во двор"},
+		{"side_quiet", "Тихая сторона"},
+		{"side_south", "Южная сторона"},
+		{"side_east", "Восточная сторона"},
+		{"side_west", "Западная сторона"},
+	}},
+	{Code: "apartment_type", Label: "🏠 Тип квартиры", Options: []filterOption{
+		{"type_studio", "Студия"},
+		{"type_1room", "1-комнатная"},
+		{"type_2room", "2-комнатная"},
+		{"type_penthouse", "Пентхаус"},
+		{"type_apartments", "Апартаменты"},
+		{"type_family", "Семейная квартира"},
+	}},
+	{Code: "balcony", Label: "🏗 Балкон / терраса", Options: []filterOption{
+		{"has_balcony", "Есть балкон"},
+		{"big_terrace", "Большая терраса"},
+		{"panoramic_windows", "Панорамные окна"},
+		{"smoking_terrace", "Можно курить на террасе"},
+		{"no_smoking", "Курение запрещено"},
+		{"terrace_furniture", "Мебель на террасе"},
+		{"terrace_sunbeds", "Лежаки / зона отдыха"},
+	}},
+	{Code: "sleeping", Label: "🛏 Спальные места", Options: []filterOption{
+		{"sleep_double_bed", "Двуспальная кровать"},
+		{"sleep_king_size", "King Size"},
+		{"sleep_sofa", "Диван"},
+		{"sleep_sofa_bed", "Раскладной диван"},
+		{"sleep_single_beds", "Отдельные кровати"},
+		{"sleep_child_bed", "Детская кровать"},
+	}},
+	{Code: "electricity", Label: "⚡ Электричество и автономность", Options: []filterOption{
+		{"elec_generator", "Генератор в доме"},
+		{"elec_ups", "Бесперебойник"},
+		{"elec_battery", "Аккумуляторы"},
+		{"elec_internet_blackout", "Интернет при отключении света"},
+		{"elec_elevator_blackout", "Лифт работает при blackout"},
+		{"elec_water_blackout", "Есть вода при отключении"},
+	}},
+	{Code: "safety", Label: "🔒 Дом и безопасность", Options: []filterOption{
+		{"safety_guard", "Охрана"},
+		{"safety_concierge", "Консьерж"},
+		{"safety_closed_area", "Закрытая территория"},
+		{"safety_cctv", "Видеонаблюдение"},
+		{"safety_parking", "Паркинг"},
+		{"safety_underground_parking", "Подземный паркинг"},
+		{"safety_pets", "Можно с животными"},
+		{"safety_self_checkin", "Self check-in"},
+	}},
+}
+
+// ─── Bot ──────────────────────────────────────────────────────────────────────
+
 type Bot struct {
-	client    *Client
-	zoneRepo  *repository.ZoneRepository
-	aptRepo   *repository.ApartmentRepository
+	client   *Client
+	zoneRepo *repository.ZoneRepository
+	aptRepo  *repository.ApartmentRepository
 }
 
 func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository) *Bot {
@@ -63,7 +155,7 @@ func (b *Bot) handleUpdate(ctx context.Context, u *tgbotapi.Update) {
 	}
 }
 
-// ─── Message commands ────────────────────────────────────────────────────────
+// ─── Message commands ─────────────────────────────────────────────────────────
 
 func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if !msg.IsCommand() {
@@ -90,7 +182,7 @@ func (b *Bot) cmdStart(ctx context.Context, msg *tgbotapi.Message) {
 	text := fmt.Sprintf(
 		"👋 Привет, *%s*\\!\n\n"+
 			"Я помогу найти и забронировать квартиру в Одессе\\.\n\n"+
-			"• /search — просмотр районов и квартир\n"+
+			"• /search — поиск жилья по фильтрам\n"+
 			"• /help — список команд",
 		escapeMarkdownV2(name),
 	)
@@ -100,16 +192,16 @@ func (b *Bot) cmdStart(ctx context.Context, msg *tgbotapi.Message) {
 func (b *Bot) cmdHelp(_ context.Context, msg *tgbotapi.Message) {
 	text := "*Список команд:*\n\n" +
 		"/start — приветствие\n" +
-		"/search — выбрать район и посмотреть квартиры\n" +
+		"/search — поиск жилья в Аркадии по фильтрам\n" +
 		"/help — это сообщение"
 	_ = b.client.sendMarkdownV2(msg.Chat.ID, text)
 }
 
-func (b *Bot) cmdSearch(ctx context.Context, msg *tgbotapi.Message) {
-	b.sendDistrictList(ctx, msg.Chat.ID, 0)
+func (b *Bot) cmdSearch(_ context.Context, msg *tgbotapi.Message) {
+	b.sendFilterList(msg.Chat.ID)
 }
 
-// ─── Callbacks ───────────────────────────────────────────────────────────────
+// ─── Callbacks ────────────────────────────────────────────────────────────────
 
 func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	_ = b.client.AnswerCallbackQuery(cq.ID, "", false)
@@ -119,6 +211,18 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	msgID := cq.Message.MessageID
 
 	switch {
+	// ── New filter flow ──
+	case data == callbackBackFilters:
+		b.editFilterList(chatID, msgID)
+
+	case strings.HasPrefix(data, callbackFilterCat):
+		catCode := strings.TrimPrefix(data, callbackFilterCat)
+		b.editFilterOptions(chatID, msgID, catCode)
+
+	case strings.HasPrefix(data, callbackFilter):
+		_ = b.client.AnswerCallbackQuery(cq.ID, "✅ Выбрано", false)
+
+	// ── Legacy district flow (kept for future use) ──
 	case data == callbackBack:
 		b.editDistrictList(ctx, chatID, msgID)
 
@@ -136,7 +240,52 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	}
 }
 
-// ─── Screens ─────────────────────────────────────────────────────────────────
+// ─── Filter screens ───────────────────────────────────────────────────────────
+
+func (b *Bot) sendFilterList(chatID int64) {
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, cat := range filterCategories {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(cat.Label, callbackFilterCat+cat.Code),
+		))
+	}
+	_ = b.client.SendMessageWithKeyboard(chatID, "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:", rows)
+}
+
+func (b *Bot) editFilterList(chatID int64, msgID int) {
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, cat := range filterCategories {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(cat.Label, callbackFilterCat+cat.Code),
+		))
+	}
+	_ = b.client.EditMessage(chatID, msgID, "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:", rows)
+}
+
+func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
+	var cat *filterCategory
+	for i := range filterCategories {
+		if filterCategories[i].Code == catCode {
+			cat = &filterCategories[i]
+			break
+		}
+	}
+	if cat == nil {
+		return
+	}
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, opt := range cat.Options {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(opt.Label, callbackFilter+opt.Code),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
+	))
+	_ = b.client.EditMessage(chatID, msgID, cat.Label, rows)
+}
+
+// ─── Legacy district screens (kept for future use) ───────────────────────────
 
 func (b *Bot) sendDistrictList(ctx context.Context, chatID int64, _ int) {
 	zones, err := b.zoneRepo.GetTopLevel(ctx)
@@ -216,7 +365,6 @@ func (b *Bot) editDistrictDetail(ctx context.Context, chatID int64, msgID int, d
 		sb.WriteString(fmt.Sprintf("\n%s уровень цен\n", priceStar))
 	}
 
-	// Apartments button
 	apts, _ := b.aptRepo.GetByZone(ctx, districtID, true)
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, apt := range apts {
