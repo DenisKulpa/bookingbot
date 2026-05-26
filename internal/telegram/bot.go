@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -12,12 +13,15 @@ import (
 )
 
 const (
-	callbackDistrict   = "district:"
-	callbackApartment  = "apartment:"
-	callbackBack       = "back:districts"
-	callbackFilterCat  = "filter_cat:"
-	callbackFilter     = "filter:"
-	callbackBackFilters = "back:filters"
+	callbackDistrict     = "district:"
+	callbackApartment    = "apartment:"
+	callbackBack         = "back:districts"
+	callbackFilterCat    = "filter_cat:"
+	callbackFilter       = "filter:"
+	callbackBackFilters  = "back:filters"
+	callbackToggleFilter = "toggle:"
+	callbackReset        = "reset:filters"
+	callbackSearch       = "search:filters"
 )
 
 // ─── Filter data ─────────────────────────────────────────────────────────────
@@ -107,12 +111,63 @@ var filterCategories = []filterCategory{
 	}},
 }
 
+func filterListText(filters map[string]bool) string {
+	count := 0
+	for _, v := range filters {
+		if v {
+			count++
+		}
+	}
+	if count == 0 {
+		return "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:"
+	}
+	return fmt.Sprintf("🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыбрано фильтров: *%d*\nВыберите категорию:", count)
+}
+
+func filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboardButton {
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, cat := range filterCategories {
+		hasActive := false
+		for _, opt := range cat.Options {
+			if filters[opt.Code] {
+				hasActive = true
+				break
+			}
+		}
+		label := cat.Label
+		if hasActive {
+			label = label + " ✅"
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, callbackFilterCat+cat.Code),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("🔍 Показать результаты", callbackSearch),
+	))
+	hasAny := false
+	for _, v := range filters {
+		if v {
+			hasAny = true
+			break
+		}
+	}
+	if hasAny {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✖️ Сбросить фильтры", callbackReset),
+		))
+	}
+	return rows
+}
+
 // ─── Bot ──────────────────────────────────────────────────────────────────────
 
 type Bot struct {
 	client   *Client
 	zoneRepo *repository.ZoneRepository
 	aptRepo  *repository.ApartmentRepository
+	mu       sync.Mutex
+	sessions map[int64]*session
 }
 
 func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository) *Bot {
@@ -120,7 +175,54 @@ func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *reposi
 		client:   client,
 		zoneRepo: zoneRepo,
 		aptRepo:  aptRepo,
+		sessions: make(map[int64]*session),
 	}
+}
+
+type session struct {
+	filters map[string]bool
+}
+
+func (b *Bot) getSession(chatID int64) *session {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if s, ok := b.sessions[chatID]; ok {
+		return s
+	}
+	s := &session{filters: make(map[string]bool)}
+	b.sessions[chatID] = s
+	return s
+}
+
+func (b *Bot) toggleFilter(chatID int64, code string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.sessions[chatID]
+	if s == nil {
+		s = &session{filters: make(map[string]bool)}
+		b.sessions[chatID] = s
+	}
+	s.filters[code] = !s.filters[code]
+}
+
+func (b *Bot) resetFilters(chatID int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sessions[chatID] = &session{filters: make(map[string]bool)}
+}
+
+func (b *Bot) activeFilters(chatID int64) map[string]bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.sessions[chatID]
+	if s == nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(s.filters))
+	for k, v := range s.filters {
+		result[k] = v
+	}
+	return result
 }
 
 // Run starts polling for updates and blocking until context is done.
@@ -215,12 +317,22 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	case data == callbackBackFilters:
 		b.editFilterList(chatID, msgID)
 
+	case data == callbackReset:
+		b.resetFilters(chatID)
+		b.editFilterList(chatID, msgID)
+
+	case data == callbackSearch:
+		b.editSearchResults(ctx, chatID, msgID)
+
+	case strings.HasPrefix(data, callbackToggleFilter):
+		code := strings.TrimPrefix(data, callbackToggleFilter)
+		b.toggleFilter(chatID, code)
+		catCode := b.findCategoryByFilterCode(code)
+		b.editFilterOptions(chatID, msgID, catCode)
+
 	case strings.HasPrefix(data, callbackFilterCat):
 		catCode := strings.TrimPrefix(data, callbackFilterCat)
 		b.editFilterOptions(chatID, msgID, catCode)
-
-	case strings.HasPrefix(data, callbackFilter):
-		_ = b.client.AnswerCallbackQuery(cq.ID, "✅ Выбрано", false)
 
 	// ── Legacy district flow (kept for future use) ──
 	case data == callbackBack:
@@ -243,23 +355,13 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 // ─── Filter screens ───────────────────────────────────────────────────────────
 
 func (b *Bot) sendFilterList(chatID int64) {
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, cat := range filterCategories {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(cat.Label, callbackFilterCat+cat.Code),
-		))
-	}
-	_ = b.client.SendMessageWithKeyboard(chatID, "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:", rows)
+	filters := b.activeFilters(chatID)
+	_ = b.client.SendMessageWithKeyboard(chatID, filterListText(filters), filterListRows(filters))
 }
 
 func (b *Bot) editFilterList(chatID int64, msgID int) {
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, cat := range filterCategories {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(cat.Label, callbackFilterCat+cat.Code),
-		))
-	}
-	_ = b.client.EditMessage(chatID, msgID, "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:", rows)
+	filters := b.activeFilters(chatID)
+	_ = b.client.EditMessage(chatID, msgID, filterListText(filters), filterListRows(filters))
 }
 
 func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
@@ -273,16 +375,79 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 	if cat == nil {
 		return
 	}
+	filters := b.activeFilters(chatID)
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, opt := range cat.Options {
+		checkbox := "☐"
+		if filters[opt.Code] {
+			checkbox = "☑️"
+		}
+		label := checkbox + " " + opt.Label
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(opt.Label, callbackFilter+opt.Code),
+			tgbotapi.NewInlineKeyboardButtonData(label, callbackToggleFilter+opt.Code),
 		))
 	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
 	))
-	_ = b.client.EditMessage(chatID, msgID, cat.Label, rows)
+	_ = b.client.EditMessage(chatID, msgID, cat.Label+"\n\nВыберите подходящие опции:", rows)
+}
+
+func (b *Bot) findCategoryByFilterCode(filterCode string) string {
+	for _, cat := range filterCategories {
+		for _, opt := range cat.Options {
+			if opt.Code == filterCode {
+				return cat.Code
+			}
+		}
+	}
+	return ""
+}
+
+func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
+	filters := b.activeFilters(chatID)
+
+	var selected []string
+	for _, cat := range filterCategories {
+		for _, opt := range cat.Options {
+			if filters[opt.Code] {
+				selected = append(selected, opt.Label)
+			}
+		}
+	}
+
+	apts, err := b.aptRepo.GetByZone(ctx, 3, true)
+	if err != nil || len(apts) == 0 {
+		_ = b.client.EditMessage(chatID, msgID,
+			"😔 По выбранным фильтрам квартир не найдено.",
+			[][]tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
+				),
+			},
+		)
+		return
+	}
+
+	var sb strings.Builder
+	if len(selected) > 0 {
+		sb.WriteString(fmt.Sprintf("🔍 *Результаты поиска*\n\nФильтры: %s\n\n", strings.Join(selected, " • ")))
+	} else {
+		sb.WriteString("🔍 *Все доступные квартиры в Аркадии:*\n\n")
+	}
+	sb.WriteString(fmt.Sprintf("Найдено квартир: *%d*", len(apts)))
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, apt := range apts {
+		label := fmt.Sprintf("🏠 %s — %.0f грн/ночь", apt.Title, apt.PricePerNight)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, callbackApartment+fmt.Sprint(apt.ID)),
+		))
+	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
+	))
+	_ = b.client.EditMessage(chatID, msgID, sb.String(), rows)
 }
 
 // ─── Legacy district screens (kept for future use) ───────────────────────────
