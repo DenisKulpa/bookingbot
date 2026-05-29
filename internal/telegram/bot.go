@@ -378,11 +378,12 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 	filters := b.activeFilters(chatID)
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, opt := range cat.Options {
-		checkbox := "⬜"
+		var label string
 		if filters[opt.Code] {
-			checkbox = "✅"
+			label = "✅ " + opt.Label
+		} else {
+			label = opt.Label
 		}
-		label := checkbox + " " + opt.Label
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, callbackToggleFilter+opt.Code),
 		))
