@@ -24,7 +24,7 @@ const (
 	callbackSearch       = "search:filters"
 )
 
-// ─── Filter data ─────────────────────────────────────────────────────────────
+// ─── Filter data ─────────────────────────────────────────────────────────[...]
 
 type filterOption struct {
 	Code  string
@@ -257,7 +257,7 @@ func (b *Bot) handleUpdate(ctx context.Context, u *tgbotapi.Update) {
 	}
 }
 
-// ─── Message commands ─────────────────────────────────────────────────────────
+// ─── Message commands ────────────────────────────────────────────────────────
 
 func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if !msg.IsCommand() {
@@ -303,7 +303,7 @@ func (b *Bot) cmdSearch(_ context.Context, msg *tgbotapi.Message) {
 	b.sendFilterList(msg.Chat.ID)
 }
 
-// ─── Callbacks ────────────────────────────────────────────────────────────────
+// ─── Callbacks ───────────────────────────────────────────────────────────────
 
 func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	_ = b.client.AnswerCallbackQuery(cq.ID, "", false)
@@ -378,9 +378,9 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 	filters := b.activeFilters(chatID)
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, opt := range cat.Options {
-		checkbox := "☐"
+		checkbox := "⬜"
 		if filters[opt.Code] {
-			checkbox = "☑️"
+			checkbox = "✅"
 		}
 		label := checkbox + " " + opt.Label
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
