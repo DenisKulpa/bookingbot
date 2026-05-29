@@ -380,9 +380,9 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 	for _, opt := range cat.Options {
 		var label string
 		if filters[opt.Code] {
-			label = "  ✅  " + opt.Label + "  "
+			label = "✔️  " + opt.Label
 		} else {
-			label = "  ⬜  " + opt.Label + "  "
+			label = "➖  " + opt.Label
 		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, callbackToggleFilter+opt.Code),

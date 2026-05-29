@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	TelegramToken string
-	SQLitePath    string
+	DatabaseURL   string
 	ServerPort    string
 }
 
@@ -25,9 +25,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
 
-	sqlitePath := os.Getenv("SQLITE_PATH")
-	if sqlitePath == "" {
-		sqlitePath = "./bookingbot.db"
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://postgres:postgres@localhost:5432/znimai?sslmode=disable"
 	}
 
 	port := os.Getenv("SERVER_PORT")
@@ -37,7 +37,7 @@ func Load() (*Config, error) {
 
 	return &Config{
 		TelegramToken: token,
-		SQLitePath:    sqlitePath,
+		DatabaseURL:   databaseURL,
 		ServerPort:    port,
 	}, nil
 }

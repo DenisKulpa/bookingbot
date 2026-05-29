@@ -9,26 +9,21 @@ import (
 	"runtime"
 	"sort"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/lib/pq"
 )
 
 func New(dataSourceName string) (*sql.DB, error) {
-	log.Printf("db: using sqlite file %s", dataSourceName)
-	database, err := sql.Open("sqlite", dataSourceName)
+	log.Printf("db: connecting to postgres")
+	database, err := sql.Open("postgres", dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("db.New: %w", err)
 	}
 
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
-	database.SetConnMaxLifetime(0)
+	database.SetMaxOpenConns(25)
+	database.SetMaxIdleConns(5)
 
 	if err := database.Ping(); err != nil {
 		return nil, fmt.Errorf("db.Ping: %w", err)
-	}
-
-	if _, err := database.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`); err != nil {
-		return nil, fmt.Errorf("db pragma: %w", err)
 	}
 
 	if err := runMigrations(database); err != nil {
@@ -44,7 +39,7 @@ func runMigrations(db *sql.DB) error {
 
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    TEXT PRIMARY KEY,
-		applied_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`)
 	if err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
@@ -60,7 +55,7 @@ func runMigrations(db *sql.DB) error {
 		version := filepath.Base(file)
 
 		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&count); err != nil {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, version).Scan(&count); err != nil {
 			return fmt.Errorf("check migration %s: %w", version, err)
 		}
 		if count > 0 {
@@ -82,7 +77,7 @@ func runMigrations(db *sql.DB) error {
 			return fmt.Errorf("apply migration %s: %w", version, err)
 		}
 
-		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, version); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", version, err)
 		}

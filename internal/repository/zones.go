@@ -83,7 +83,7 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 			pros, cons, housing_types,
 			price_level, best_for, season_note, sort_order
 		FROM zones
-		WHERE id = ? AND is_active = 1
+		WHERE id = $1 AND is_active = 1
 	`, id)
 
 	z := &model.Zone{}
@@ -152,7 +152,7 @@ func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*mode
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, short_desc, full_desc, sort_order
 		FROM zones
-		WHERE parent_id = ? AND is_active = 1
+		WHERE parent_id = $1 AND is_active = 1
 		ORDER BY sort_order ASC
 	`, parentID)
 	if err != nil {

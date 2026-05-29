@@ -23,7 +23,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	database, err := db.New(cfg.SQLitePath)
+	database, err := db.New(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}

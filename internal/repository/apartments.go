@@ -22,7 +22,7 @@ func (r *ApartmentRepository) GetByZone(ctx context.Context, zoneID int, onlyAva
 		       rooms, max_guests, price_per_night, photos, amenities,
 		       is_available, created_at, updated_at
 		FROM apartments
-		WHERE zone_id = ?
+		WHERE zone_id = $1
 	`
 	args := []any{zoneID}
 	if onlyAvailable {
@@ -38,7 +38,7 @@ func (r *ApartmentRepository) GetByID(ctx context.Context, id int) (*model.Apart
 		       rooms, max_guests, price_per_night, photos, amenities,
 		       is_available, created_at, updated_at
 		FROM apartments
-		WHERE id = ?
+		WHERE id = $1
 	`, id)
 
 	a := &model.Apartment{}

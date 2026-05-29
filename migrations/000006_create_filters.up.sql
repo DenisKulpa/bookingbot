@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS filter_categories (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     code        TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
     sort_order  INTEGER NOT NULL DEFAULT 0,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS filter_categories (
 );
 
 CREATE TABLE IF NOT EXISTS filter_options (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     category_id INTEGER NOT NULL REFERENCES filter_categories(id) ON DELETE CASCADE,
     code        TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS apartment_filters (
 CREATE INDEX IF NOT EXISTS idx_apartment_filters_apartment_id ON apartment_filters(apartment_id);
 CREATE INDEX IF NOT EXISTS idx_apartment_filters_filter_option_id ON apartment_filters(filter_option_id);
 
-INSERT OR IGNORE INTO filter_categories (code, name, sort_order, is_active)
+INSERT INTO filter_categories (code, name, sort_order, is_active)
 VALUES
 ('location', 'Локация в Аркадии', 1, 1),
 ('sea_distance', 'Расстояние до моря', 2, 1),
@@ -32,9 +32,10 @@ VALUES
 ('balcony', 'Балкон / терраса', 4, 1),
 ('sleeping', 'Спальные места', 5, 1),
 ('electricity', 'Электричество и автономность', 6, 1),
-('safety', 'Дом и безопасность', 7, 1);
+('safety', 'Дом и безопасность', 7, 1)
+ON CONFLICT (code) DO NOTHING;
 
-INSERT OR IGNORE INTO filter_options (category_id, code, name, sort_order, is_active)
+INSERT INTO filter_options (category_id, code, name, sort_order, is_active)
 VALUES
 ((SELECT id FROM filter_categories WHERE code = 'location'), 'zone_gagarin_plaza', 'Гагарин Плаза', 1, 1),
 ((SELECT id FROM filter_categories WHERE code = 'location'), 'zone_elegiya_park', 'Элегия Парк', 2, 1),
@@ -98,4 +99,5 @@ VALUES
 ((SELECT id FROM filter_categories WHERE code = 'safety'), 'safety_parking', 'Паркинг', 5, 1),
 ((SELECT id FROM filter_categories WHERE code = 'safety'), 'safety_underground_parking', 'Подземный паркинг', 6, 1),
 ((SELECT id FROM filter_categories WHERE code = 'safety'), 'safety_pets', 'Можно с животными', 7, 1),
-((SELECT id FROM filter_categories WHERE code = 'safety'), 'safety_self_checkin', 'Self check-in', 8, 1);
+((SELECT id FROM filter_categories WHERE code = 'safety'), 'safety_self_checkin', 'Self check-in', 8, 1)
+ON CONFLICT (code) DO NOTHING;

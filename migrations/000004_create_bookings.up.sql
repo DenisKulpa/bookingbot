@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS bookings (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              SERIAL PRIMARY KEY,
     apartment_id    INTEGER NOT NULL REFERENCES apartments(id) ON DELETE CASCADE,
     client_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     check_in        DATE NOT NULL,
@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS bookings (
                         'cancelled'
                     )),
     admin_note      TEXT,
-    created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (check_out > check_in)
 );
 

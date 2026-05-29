@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS zones (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              SERIAL PRIMARY KEY,
     parent_id       INTEGER REFERENCES zones(id) ON DELETE CASCADE,
     city            TEXT NOT NULL DEFAULT 'Одесса',
     name            TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_zones_parent_id ON zones(parent_id);
 CREATE INDEX IF NOT EXISTS idx_zones_is_active ON zones(is_active);
 
 -- Top level districts (active in menu: only Аркадия)
-INSERT OR IGNORE INTO zones (
+INSERT INTO zones (
     id, parent_id, city, name, emoji, short_desc, target_audience, pros, cons,
     housing_types, price_level, best_for, season_note, sort_order, is_active
 )
@@ -32,10 +32,14 @@ VALUES
  '["Пляж рядом","Развитая инфраструктура","Много новых ЖК","Высокий спрос в сезон"]',
  '["Шумно в пик сезона","Цены выше среднего"]',
  '["Студии","1-2 комнатные квартиры","Пентхаусы","Апартаменты"]',
- 3, 'Пляжный отдых и короткие поездки', 'Максимальный спрос летом, стабильный межсезон', 1, 1);
+ 3, 'Пляжный отдых и короткие поездки', 'Максимальный спрос летом, стабильный межсезон', 1, 1)
+ON CONFLICT (id) DO NOTHING;
+
+-- Reset sequence before inserting subzones (explicit id=3 was used above)
+SELECT setval('zones_id_seq', (SELECT MAX(id) FROM zones));
 
 -- Subzones for Аркадия (parent_id = 3)
-INSERT OR IGNORE INTO zones (
+INSERT INTO zones (
     parent_id, city, name, emoji, short_desc, full_desc, target_audience, pros,
     cons, housing_types, price_level, best_for, season_note, sort_order, is_active
 )
