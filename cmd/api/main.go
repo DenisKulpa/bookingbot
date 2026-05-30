@@ -29,6 +29,12 @@ func main() {
 	}
 	defer database.Close()
 
+	if cfg.Seed {
+		if err := db.RunSeed(database); err != nil {
+			log.Fatalf("seed: %v", err)
+		}
+	}
+
 	zoneRepo := repository.NewZoneRepository(database)
 	zoneHandler := handler.NewZoneHandler(zoneRepo)
 

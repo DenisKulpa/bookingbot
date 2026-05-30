@@ -91,3 +91,21 @@ func runMigrations(db *sql.DB) error {
 
 	return nil
 }
+
+// RunSeed выполняет seeds/seed.sql — идемпотентно (все запросы ON CONFLICT DO NOTHING).
+func RunSeed(database *sql.DB) error {
+	_, filename, _, _ := runtime.Caller(0)
+	seedFile := filepath.Join(filepath.Dir(filename), "..", "..", "seeds", "seed.sql")
+
+	content, err := os.ReadFile(seedFile)
+	if err != nil {
+		return fmt.Errorf("read seed file: %w", err)
+	}
+
+	if _, err := database.Exec(string(content)); err != nil {
+		return fmt.Errorf("run seed: %w", err)
+	}
+
+	log.Printf("db: seed applied from %s", filepath.Base(seedFile))
+	return nil
+}

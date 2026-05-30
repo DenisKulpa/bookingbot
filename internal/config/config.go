@@ -13,6 +13,7 @@ type Config struct {
 	TelegramToken string
 	DatabaseURL   string
 	ServerPort    string
+	Seed          bool
 }
 
 func Load() (*Config, error) {
@@ -39,5 +40,6 @@ func Load() (*Config, error) {
 		TelegramToken: token,
 		DatabaseURL:   databaseURL,
 		ServerPort:    port,
+		Seed:          os.Getenv("SEED") == "true",
 	}, nil
 }

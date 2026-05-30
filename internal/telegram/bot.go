@@ -281,14 +281,9 @@ func (b *Bot) cmdStart(ctx context.Context, msg *tgbotapi.Message) {
 	if name == "" {
 		name = msg.From.UserName
 	}
-	text := fmt.Sprintf(
-		"👋 Привет, *%s*\\!\n\n"+
-			"Я помогу найти и забронировать квартиру в Одессе\\.\n\n"+
-			"• /search — поиск жилья по фильтрам\n"+
-			"• /help — список команд",
-		escapeMarkdownV2(name),
-	)
+	text := fmt.Sprintf("👋 Привет, *%s*\\!\n\nЯ помогу найти и забронировать квартиру в Одессе\\.", escapeMarkdownV2(name))
 	_ = b.client.sendMarkdownV2(msg.Chat.ID, text)
+	b.sendFilterList(msg.Chat.ID)
 }
 
 func (b *Bot) cmdHelp(_ context.Context, msg *tgbotapi.Message) {
@@ -409,15 +404,17 @@ func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
 	filters := b.activeFilters(chatID)
 
 	var selected []string
+	var selectedCodes []string
 	for _, cat := range filterCategories {
 		for _, opt := range cat.Options {
 			if filters[opt.Code] {
 				selected = append(selected, opt.Label)
+				selectedCodes = append(selectedCodes, opt.Code)
 			}
 		}
 	}
 
-	apts, err := b.aptRepo.GetByZone(ctx, 3, true)
+	apts, err := b.aptRepo.GetByFilters(ctx, selectedCodes)
 	if err != nil || len(apts) == 0 {
 		_ = b.client.EditMessage(chatID, msgID,
 			"😔 По выбранным фильтрам квартир не найдено.",
@@ -567,14 +564,9 @@ func (b *Bot) editApartmentDetail(ctx context.Context, chatID int64, msgID int, 
 		sb.WriteString("\n✨ *Удобства:* " + strings.Join(apt.Amenities, ", ") + "\n")
 	}
 
-	var districtID int
-	if apt.ZoneID != nil {
-		districtID = *apt.ZoneID
-	}
-
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к квартирам", callbackDistrict+fmt.Sprint(districtID)),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к результатам", callbackSearch),
 		),
 	}
 

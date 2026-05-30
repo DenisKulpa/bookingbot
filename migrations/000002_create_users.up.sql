@@ -12,8 +12,3 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-
--- Seed owner account used by apartment seed data
-INSERT INTO users (telegram_id, username, first_name, last_name, role)
-VALUES (100000001, 'booking_admin', 'Администратор', 'Системный', 'admin')
-ON CONFLICT (telegram_id) DO NOTHING;

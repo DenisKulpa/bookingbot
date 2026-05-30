@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/DenisKulpa/bookingbot/internal/model"
 )
@@ -29,6 +30,40 @@ func (r *ApartmentRepository) GetByZone(ctx context.Context, zoneID int, onlyAva
 		q += " AND is_available = true"
 	}
 	q += " ORDER BY id ASC"
+	return r.queryArgs(ctx, q, args...)
+}
+
+// GetByFilters возвращает квартиры, которые имеют ВСЕ указанные filter_option коды.
+// Если filterCodes пустой — возвращает все доступные квартиры.
+func (r *ApartmentRepository) GetByFilters(ctx context.Context, filterCodes []string) ([]*model.Apartment, error) {
+	if len(filterCodes) == 0 {
+		return r.GetByZone(ctx, 3, true)
+	}
+
+	// Placeholders: $1, $2, ...
+	placeholders := make([]string, len(filterCodes))
+	args := make([]any, len(filterCodes))
+	for i, code := range filterCodes {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = code
+	}
+
+	q := fmt.Sprintf(`
+		SELECT a.id, a.owner_id, a.zone_id, a.title, a.description, a.address,
+		       a.rooms, a.max_guests, a.price_per_night, a.photos, a.amenities,
+		       a.is_available, a.created_at, a.updated_at
+		FROM apartments a
+		WHERE a.is_available = true
+		  AND (
+		      SELECT COUNT(DISTINCT fo.code)
+		      FROM apartment_filters af
+		      JOIN filter_options fo ON fo.id = af.filter_option_id
+		      WHERE af.apartment_id = a.id
+		        AND fo.code IN (%s)
+		  ) = %d
+		ORDER BY a.id ASC
+	`, strings.Join(placeholders, ","), len(filterCodes))
+
 	return r.queryArgs(ctx, q, args...)
 }
 
