@@ -71,6 +71,36 @@ func (c *Client) sendMarkdownV2(chatID int64, text string) error {
 	return err
 }
 
+// DeleteMessage удаляет сообщение
+func (c *Client) DeleteMessage(chatID int64, messageID int) error {
+	del := tgbotapi.NewDeleteMessage(chatID, messageID)
+	_, err := c.bot.Request(del)
+	return err
+}
+
+// SendMediaGroup отправляет группу фото (файлы с диска). Возвращает ID первого сообщения.
+func (c *Client) SendMediaGroup(chatID int64, filePaths []string) error {
+	if len(filePaths) == 0 {
+		return nil
+	}
+	var media []interface{}
+	for _, p := range filePaths {
+		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(p))
+		media = append(media, photo)
+	}
+	mg := tgbotapi.NewMediaGroup(chatID, media)
+	_, err := c.bot.SendMediaGroup(mg)
+	return err
+}
+
+// SendMessageWithKeyboard sends a new message (returns sent message)
+func (c *Client) SendMessageWithKeyboardFull(chatID int64, text string, buttons [][]tgbotapi.InlineKeyboardButton) (tgbotapi.Message, error) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(buttons...)
+	return c.bot.Send(msg)
+}
+
 // GetUpdates returns a channel with updates from Telegram
 func (c *Client) GetUpdates(timeout int) (tgbotapi.UpdatesChannel, error) {
 	u := tgbotapi.NewUpdate(0)

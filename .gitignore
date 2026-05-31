@@ -6,3 +6,5 @@ tmp/
 *.db
 *.db-shm
 *.db-wal
+# Загруженные фото (структура папок хранится через .gitkeep)
+uploads/apartments/*/

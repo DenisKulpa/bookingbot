@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/DenisKulpa/bookingbot/internal/config"
@@ -41,12 +43,17 @@ func main() {
 	apartmentRepo := repository.NewApartmentRepository(database)
 	apartmentHandler := handler.NewApartmentHandler(apartmentRepo)
 
+	photoRepo := repository.NewPhotoRepository(database)
+	photoHandler := handler.NewPhotoHandler(photoRepo)
+
 	// ── Telegram bot ──────────────────────────────────────────────────────────
 	tgClient, err := telegram.New(cfg.TelegramToken)
 	if err != nil {
 		log.Fatalf("telegram: %v", err)
 	}
-	bot := telegram.NewBot(tgClient, zoneRepo, apartmentRepo)
+	_, mainFile, _, _ := runtime.Caller(0)
+	uploadsRoot := filepath.Join(filepath.Dir(mainFile), "..", "..")
+	bot := telegram.NewBot(tgClient, zoneRepo, apartmentRepo, photoRepo, uploadsRoot)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -63,7 +70,13 @@ func main() {
 		r.Get("/districts/{id}", zoneHandler.GetDistrictDetail)
 		r.Get("/districts/{id}/apartments", apartmentHandler.GetApartments)
 		r.Get("/apartments/{id}", apartmentHandler.GetApartmentDetail)
+		r.Get("/apartments/{id}/photos", photoHandler.List)
+		r.Post("/apartments/{id}/photos", photoHandler.Upload)
+		r.Delete("/photos/{id}", photoHandler.Delete)
 	})
+
+	// Статические файлы: GET /uploads/apartments/{id}/filename.jpg
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(filepath.Join(uploadsRoot, "uploads")))))
 
 	log.Printf("Server started on :%s", cfg.ServerPort)
 	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: r}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -163,19 +164,23 @@ func filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboardButton {
 // ─── Bot ──────────────────────────────────────────────────────────────────────
 
 type Bot struct {
-	client   *Client
-	zoneRepo *repository.ZoneRepository
-	aptRepo  *repository.ApartmentRepository
-	mu       sync.Mutex
-	sessions map[int64]*session
+	client      *Client
+	zoneRepo    *repository.ZoneRepository
+	aptRepo     *repository.ApartmentRepository
+	photoRepo   *repository.PhotoRepository
+	uploadsRoot string // абсолютный путь к корню проекта
+	mu          sync.Mutex
+	sessions    map[int64]*session
 }
 
-func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository) *Bot {
+func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository, photoRepo *repository.PhotoRepository, uploadsRoot string) *Bot {
 	return &Bot{
-		client:   client,
-		zoneRepo: zoneRepo,
-		aptRepo:  aptRepo,
-		sessions: make(map[int64]*session),
+		client:      client,
+		zoneRepo:    zoneRepo,
+		aptRepo:     aptRepo,
+		photoRepo:   photoRepo,
+		uploadsRoot: uploadsRoot,
+		sessions:    make(map[int64]*session),
 	}
 }
 
@@ -564,13 +569,35 @@ func (b *Bot) editApartmentDetail(ctx context.Context, chatID int64, msgID int, 
 		sb.WriteString("\n✨ *Удобства:* " + strings.Join(apt.Amenities, ", ") + "\n")
 	}
 
-	rows := [][]tgbotapi.InlineKeyboardButton{
+	btns := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к результатам", callbackSearch),
 		),
 	}
 
-	_ = b.client.EditMessage(chatID, msgID, sb.String(), rows)
+	// Загружаем фото квартиры
+	photos, _ := b.photoRepo.GetByApartment(ctx, aptID)
+	if len(photos) > 0 && b.uploadsRoot != "" {
+		// Удаляем старое сообщение со списком
+		_ = b.client.DeleteMessage(chatID, msgID)
+
+		// Собираем абсолютные пути (до 10 фото — лимит Telegram)
+		var filePaths []string
+		for i, p := range photos {
+			if i >= 10 {
+				break
+			}
+			filePaths = append(filePaths, filepath.Join(b.uploadsRoot, filepath.FromSlash(p.FilePath)))
+		}
+		if err := b.client.SendMediaGroup(chatID, filePaths); err != nil {
+			log.Printf("bot: SendMediaGroup apt=%d: %v", aptID, err)
+		}
+		// Текст с кнопкой отправляем новым сообщением
+		_, _ = b.client.SendMessageWithKeyboardFull(chatID, sb.String(), btns)
+	} else {
+		// Фото нет — редактируем существующее сообщение
+		_ = b.client.EditMessage(chatID, msgID, sb.String(), btns)
+	}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
