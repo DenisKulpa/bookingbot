@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS users (
     id              SERIAL PRIMARY KEY,
-    telegram_id     INTEGER NOT NULL UNIQUE,
+    telegram_id     BIGINT NOT NULL UNIQUE,
     username        TEXT,
     first_name      TEXT,
     last_name       TEXT,

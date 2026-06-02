@@ -36,7 +36,12 @@ ON CONFLICT DO NOTHING;
 
 -- Admin user
 INSERT INTO users (telegram_id, username, first_name, last_name, role)
-VALUES (100000001, 'booking_admin', 'Администратор', 'Системный', 'admin')
+VALUES (542389660, 'booking_admin', 'Администратор', 'Системный', 'admin')
+ON CONFLICT (telegram_id) DO NOTHING;
+
+-- Client user
+INSERT INTO users (telegram_id, username, first_name, last_name, role)
+VALUES (7530461559, 'vitaliy', 'Vitaliy', '', 'client')
 ON CONFLICT (telegram_id) DO NOTHING;
 
 -- filter_categories
@@ -114,63 +119,63 @@ ON CONFLICT (code) DO NOTHING;
 -- Apartments (идемпотентность через WHERE NOT EXISTS)
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, 3, 'Апартаменты в 5 минутах от пляжа', 'Современные апартаменты в курортном комплексе. До главного пляжа Одессы — 5 минут пешком.', 'ул. Генуэзская, 3', 1, 'apartments', 2, 2200.00, '["photo_ark_1_1.jpg","photo_ark_1_2.jpg"]', '["WiFi","Кухня","Кондиционер","Стиральная машина","Сейф"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты в 5 минутах от пляжа');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты в 5 минутах от пляжа');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, 3, 'Студия с панорамным видом на море', 'Студия на верхнем этаже с панорамным видом на Чёрное море. Романтика и алые закаты каждый вечер.', 'Набережная Аркадии, 9', 1, 'studio', 2, 2600.00, '["photo_ark_2_1.jpg","photo_ark_2_2.jpg"]', '["WiFi","Кухня","Кондиционер","Балкон","Кофемашина"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия с панорамным видом на море');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия с панорамным видом на море');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, 3, 'Трёшка для большой компании', 'Просторная трёхкомнатная квартира для большой компании или семьи. 3 спальни, 2 санузла.', 'ул. Тенистая, 8', 3, 'family', 6, 4200.00, '["photo_ark_3_1.jpg","photo_ark_3_2.jpg","photo_ark_3_3.jpg"]', '["WiFi","Кухня","Кондиционер","Стиральная машина","Посудомойка","2 санузла","Детская кроватка","Парковка"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Трёшка для большой компании');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Трёшка для большой компании');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Гагарин Плаза'), 'Студия в Гагарин Плаза с видом на город', 'Светлая студия в новом ЖК Гагарин Плаза. Вид на городские огни, консьерж, генератор в доме.', 'просп. Гагарина, 19', 1, 'studio', 2, 1800.00, '[]', '["WiFi","Кондиционер","Кухня","Консьерж","Охрана","Генератор"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия в Гагарин Плаза с видом на город');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия в Гагарин Плаза с видом на город');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Элегия Парк'), 'Уютная 1-комнатная у парка, тихая сторона', 'Квартира с большим балконом на тихую сторону. Раскладной диван в гостиной, рядом зелёная зона.', 'ул. Парковая, 5', 1, '1room', 3, 1900.00, '[]', '["WiFi","Кондиционер","Кухня","Балкон","Стиральная машина","Можно с животными"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Уютная 1-комнатная у парка, тихая сторона');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Уютная 1-комнатная у парка, тихая сторона');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Родос / Эллада'), 'Двушка первая линия — вид прямо на море', 'Квартира в ЖК Родос с прямым видом на Чёрное море. Первая линия, кровать King Size, панорамные окна.', 'Набережная Аркадии, 14а', 2, '2room', 4, 3800.00, '[]', '["WiFi","Кондиционер","Кухня","Панорамные окна","King Size","Подземный паркинг","Посудомойка"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Двушка первая линия — вид прямо на море');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Двушка первая линия — вид прямо на море');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Акрополь'), 'Пентхаус с террасой — вид на закат', 'Роскошный пентхаус с большой террасой. Вид на закат, бесперебойник, видеонаблюдение. Self check-in.', 'ул. Акропольская, 3', 2, 'penthouse', 4, 6500.00, '[]', '["WiFi","Кондиционер","Кухня","Большая терраса","Мебель на террасе","Вид на закат","Бесперебойник","Видеонаблюдение","Self check-in"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Пентхаус с террасой — вид на закат');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Пентхаус с террасой — вид на закат');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Каманина'), 'Студия 2 мин до пляжа, боковой вид на море', 'Компактная студия в 2 минутах ходьбы до пляжа. Балкон с боковым видом на море.', 'ул. Каманина, 16', 1, 'studio', 2, 2100.00, '[]', '["WiFi","Кондиционер","Кухня","Балкон","Кофемашина"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия 2 мин до пляжа, боковой вид на море');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия 2 мин до пляжа, боковой вид на море');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Морская сторона'), 'Апартаменты первая линия — панорама моря', 'Апартаменты прямо у воды с панорамным видом. Большая терраса с лежаками. Генератор, аккумуляторы.', 'Набережная Аркадии, 22', 2, 'apartments', 4, 4500.00, '[]', '["WiFi","Кондиционер","Кухня","Большая терраса","Лежаки / зона отдыха","Генератор","Аккумуляторы","Интернет при отключении света"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты первая линия — панорама моря');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты первая линия — панорама моря');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Генуэзская'), '1-комнатная в закрытом ЖК на Генуэзской', 'Квартира в закрытом ЖК. Охрана, паркинг, консьерж. Две отдельные кровати.', 'ул. Генуэзская, 24б', 1, '1room', 2, 2000.00, '[]', '["WiFi","Кондиционер","Кухня","Закрытая территория","Паркинг","Охрана","Консьерж","Отдельные кровати"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = '1-комнатная в закрытом ЖК на Генуэзской');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = '1-комнатная в закрытом ЖК на Генуэзской');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Аркадийская аллея'), 'Семейная двушка у аллеи — для семьи с детьми', 'Просторная 2-комнатная рядом с Аркадийской аллеей. Детская кроватка, можно с животными.', 'Аркадийская аллея, 7', 2, '2room', 4, 2800.00, '[]', '["WiFi","Кондиционер","Кухня","Двуспальная кровать","Детская кровать","Стиральная машина","Можно с животными"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Семейная двушка у аллеи — для семьи с детьми');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Семейная двушка у аллеи — для семьи с детьми');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Район Ibiza / Itaka'), 'Студия у Ibiza — 5 мин до пляжа', 'Стильная студия рядом с клубной зоной. До пляжа 5 минут, южная сторона. Self check-in.', 'ул. Генуэзская, 30', 1, 'studio', 2, 2300.00, '[]', '["WiFi","Кондиционер","Кухня","Self check-in","Курение запрещено","Кофемашина"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия у Ibiza — 5 мин до пляжа');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Студия у Ibiza — 5 мин до пляжа');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Тихая Аркадия'), 'Тихая Аркадия — семейная квартира', 'Спокойный уголок Аркадии вдали от клубов. Большой диван, лифт работает при отключении света.', 'ул. Тихая, 12', 2, 'family', 5, 2400.00, '[]', '["WiFi","Кондиционер","Кухня","Диван","Стиральная машина","Детская кровать","Лифт работает при blackout"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Тихая Аркадия — семейная квартира');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Тихая Аркадия — семейная квартира');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Ближе к Парку Победы'), 'Двушка у Парка Победы — автономная', 'Квартира рядом с Парком Победы. Аккумуляторы, вода и интернет при отключении света. Паркинг.', 'просп. Шевченко, 4', 2, '2room', 4, 2200.00, '[]', '["WiFi","Кондиционер","Кухня","Аккумуляторы","Есть вода при отключении","Интернет при отключении света","Паркинг","Стиральная машина"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Двушка у Парка Победы — автономная');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Двушка у Парка Победы — автономная');
 
 INSERT INTO apartments (owner_id, zone_id, title, description, address, rooms, apartment_type, max_guests, price_per_night, photos, amenities)
 SELECT u.id, (SELECT id FROM zones WHERE name='Ближе к трассе здоровья'), 'Апартаменты у трассы здоровья — для активных', 'Современная квартира для активного отдыха. Панорамные окна, кровать King Size. Подземный паркинг.', 'ул. Черноморская, 8', 1, '1room', 2, 2100.00, '[]', '["WiFi","Кондиционер","Кухня","Панорамные окна","King Size","Подземный паркинг","Стиральная машина"]'
-FROM users u WHERE u.telegram_id = 100000001 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты у трассы здоровья — для активных');
+FROM users u WHERE u.telegram_id = 542389660 AND NOT EXISTS (SELECT 1 FROM apartments WHERE title = 'Апартаменты у трассы здоровья — для активных');
 
 -- apartment_filters
 INSERT INTO apartment_filters (apartment_id, filter_option_id)
@@ -244,3 +249,75 @@ SELECT a.id, fo.id FROM apartments a, filter_options fo
 WHERE a.title='Апартаменты у трассы здоровья — для активных'
   AND fo.code IN ('zone_trassa_zdorovya','panoramic_windows','sleep_king_size','safety_underground_parking')
 ON CONFLICT DO NOTHING;
+
+-- ============================================================
+-- Тестовые данные: занятость квартир (apartment_availability)
+-- ============================================================
+
+-- Квартира id=4 (Студия Гагарин Плаза): заблокированные диапазоны (ремонт, личные нужды)
+INSERT INTO apartment_availability (apartment_id, date_from, date_to, status, note)
+SELECT a.id,
+       (CURRENT_DATE + i * 14)::DATE,
+       (CURRENT_DATE + i * 14 + 4)::DATE,
+       'blocked',
+       CASE i WHEN 0 THEN 'Ремонт' WHEN 1 THEN 'Личные нужды' ELSE 'Недоступно' END
+FROM apartments a, (VALUES (0),(1),(2)) t(i)
+WHERE a.title = 'Студия в Гагарин Плаза с видом на город'
+  AND NOT EXISTS (
+    SELECT 1 FROM apartment_availability aa
+    WHERE aa.apartment_id = a.id AND aa.status = 'blocked'
+  );
+
+-- Квартира «Двушка первая линия»: заблокирован целый диапазон (бронь хозяина)
+INSERT INTO apartment_availability (apartment_id, date_from, date_to, status, note)
+SELECT a.id,
+       (CURRENT_DATE + 7)::DATE,
+       (CURRENT_DATE + 12)::DATE,
+       'blocked',
+       'Хозяйская бронь'
+FROM apartments a
+WHERE a.title = 'Двушка первая линия — вид прямо на море'
+  AND NOT EXISTS (
+    SELECT 1 FROM apartment_availability aa
+    WHERE aa.apartment_id = a.id AND aa.status = 'blocked'
+  );
+
+-- Квартира «Пентхаус»: явно открытый период (available) + заблокированный
+INSERT INTO apartment_availability (apartment_id, date_from, date_to, status, note)
+SELECT a.id, d_from::DATE, d_to::DATE, st, note
+FROM apartments a,
+     (VALUES
+       ((CURRENT_DATE + 3)::TEXT,  (CURRENT_DATE + 6)::TEXT,  'blocked',   'Технический перерыв'),
+       ((CURRENT_DATE + 20)::TEXT, (CURRENT_DATE + 25)::TEXT, 'blocked',   'Ремонт балкона'),
+       ((CURRENT_DATE + 7)::TEXT,  (CURRENT_DATE + 19)::TEXT, 'available', 'Открыто для бронирования')
+     ) t(d_from, d_to, st, note)
+WHERE a.title = 'Пентхаус с террасой — вид на закат'
+  AND NOT EXISTS (
+    SELECT 1 FROM apartment_availability aa WHERE aa.apartment_id = a.id
+  );
+
+-- Тестовые бронирования (bookings) — имитация реальных заявок
+INSERT INTO bookings (apartment_id, client_id, check_in, check_out, guests_count, total_price, status)
+SELECT a.id, u.id,
+       (CURRENT_DATE + 2)::DATE,
+       (CURRENT_DATE + 5)::DATE,
+       2, a.price_per_night * 3, 'confirmed'
+FROM apartments a, users u
+WHERE a.title = 'Студия в Гагарин Плаза с видом на город'
+  AND u.telegram_id = 7530461559
+  AND NOT EXISTS (
+    SELECT 1 FROM bookings b WHERE b.apartment_id = a.id AND b.status = 'confirmed'
+  );
+
+INSERT INTO bookings (apartment_id, client_id, check_in, check_out, guests_count, total_price, status)
+SELECT a.id, u.id,
+       (CURRENT_DATE + 15)::DATE,
+       (CURRENT_DATE + 19)::DATE,
+       3, a.price_per_night * 4, 'approved'
+FROM apartments a, users u
+WHERE a.title = 'Двушка первая линия — вид прямо на море'
+  AND u.telegram_id = 7530461559
+  AND NOT EXISTS (
+    SELECT 1 FROM bookings b WHERE b.apartment_id = a.id AND b.status = 'approved'
+  );
+

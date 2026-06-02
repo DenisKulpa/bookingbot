@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -14,15 +16,22 @@ import (
 )
 
 const (
-	callbackDistrict     = "district:"
-	callbackApartment    = "apartment:"
-	callbackBack         = "back:districts"
-	callbackFilterCat    = "filter_cat:"
-	callbackFilter       = "filter:"
-	callbackBackFilters  = "back:filters"
-	callbackToggleFilter = "toggle:"
-	callbackReset        = "reset:filters"
-	callbackSearch       = "search:filters"
+	callbackDistrict       = "district:"
+	callbackApartment      = "apartment:"
+	callbackBack           = "back:districts"
+	callbackFilterCat      = "filter_cat:"
+	callbackFilter         = "filter:"
+	callbackBackFilters    = "back:filters"
+	callbackToggleFilter   = "toggle:"
+	callbackReset          = "reset:filters"
+	callbackSearch         = "search:filters"
+	callbackBooking        = "booking:"
+	callbackBookingConfirm = "booking_confirm:"
+	callbackBookingCancel  = "booking_cancel:"
+	callbackBookingApprove = "booking_approve:"
+	callbackBookingReject  = "booking_reject:"
+	callbackAskQuestion    = "ask_question:"
+	callbackChatReply      = "chat_reply:"
 )
 
 // ─── Filter data ─────────────────────────────────────────────────────────[...]
@@ -168,17 +177,21 @@ type Bot struct {
 	zoneRepo    *repository.ZoneRepository
 	aptRepo     *repository.ApartmentRepository
 	photoRepo   *repository.PhotoRepository
-	uploadsRoot string // абсолютный путь к корню проекта
+	bookingRepo *repository.BookingRepository
+	userRepo    *repository.UserRepository
+	uploadsRoot string
 	mu          sync.Mutex
 	sessions    map[int64]*session
 }
 
-func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository, photoRepo *repository.PhotoRepository, uploadsRoot string) *Bot {
+func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository, photoRepo *repository.PhotoRepository, bookingRepo *repository.BookingRepository, userRepo *repository.UserRepository, uploadsRoot string) *Bot {
 	return &Bot{
 		client:      client,
 		zoneRepo:    zoneRepo,
 		aptRepo:     aptRepo,
 		photoRepo:   photoRepo,
+		bookingRepo: bookingRepo,
+		userRepo:    userRepo,
 		uploadsRoot: uploadsRoot,
 		sessions:    make(map[int64]*session),
 	}
@@ -186,6 +199,16 @@ func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *reposi
 
 type session struct {
 	filters map[string]bool
+	// Бронирование
+	bookingStep  int // 0=нет, 1=выбор check-in, 2=выбор check-out
+	bookingAptID int
+	bookingIn    time.Time
+	bookingOut   time.Time
+	// Чат
+	chatAptID       int   // > 0 — клиент в режиме чата с владельцем этой квартиры
+	chatOwnerTgID   int64 // telegram_id владельца квартиры
+	chatAptTitle    string
+	replyToClientID int64 // > 0 — арендодатель отвечает этому клиенту (chat_id)
 }
 
 func (b *Bot) getSession(chatID int64) *session {
@@ -266,6 +289,7 @@ func (b *Bot) handleUpdate(ctx context.Context, u *tgbotapi.Update) {
 
 func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if !msg.IsCommand() {
+		b.handleChatMessage(ctx, msg)
 		return
 	}
 
@@ -276,6 +300,8 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		b.cmdSearch(ctx, msg)
 	case "help":
 		b.cmdHelp(ctx, msg)
+	case "stopchat":
+		b.cmdStopChat(msg)
 	default:
 		_ = b.client.SendMessage(msg.Chat.ID, "Неизвестная команда. Используйте /help для списка команд.")
 	}
@@ -349,6 +375,45 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		var id int
 		fmt.Sscanf(idStr, "%d", &id)
 		b.editApartmentDetail(ctx, chatID, msgID, id)
+
+	// ── Booking flow ──
+	case data == callbackCalIgnore:
+		// ничего не делаем — кнопка-заглушка
+
+	case strings.HasPrefix(data, callbackBooking):
+		idStr := strings.TrimPrefix(data, callbackBooking)
+		aptID, _ := strconv.Atoi(idStr)
+		b.startBookingCheckIn(chatID, msgID, aptID)
+
+	case strings.HasPrefix(data, callbackCalNav):
+		// cal_nav:YYYY-MM:APTID
+		b.handleCalNav(chatID, msgID, cq.From, strings.TrimPrefix(data, callbackCalNav))
+
+	case strings.HasPrefix(data, callbackCalDay):
+		// cal_day:YYYY-MM-DD:APTID
+		b.handleCalDay(ctx, chatID, msgID, cq.From, strings.TrimPrefix(data, callbackCalDay))
+
+	case strings.HasPrefix(data, callbackBookingConfirm):
+		b.confirmBooking(ctx, chatID, msgID, cq.From, strings.TrimPrefix(data, callbackBookingConfirm))
+
+	case strings.HasPrefix(data, callbackBookingCancel):
+		aptID, _ := strconv.Atoi(strings.TrimPrefix(data, callbackBookingCancel))
+		b.cancelBookingFlow(chatID, aptID)
+		b.editApartmentDetail(ctx, chatID, msgID, aptID)
+
+	case strings.HasPrefix(data, callbackBookingApprove):
+		b.handleBookingApprove(ctx, chatID, msgID, strings.TrimPrefix(data, callbackBookingApprove))
+
+	case strings.HasPrefix(data, callbackBookingReject):
+		b.handleBookingReject(ctx, chatID, msgID, strings.TrimPrefix(data, callbackBookingReject))
+
+	case strings.HasPrefix(data, callbackAskQuestion):
+		aptID, _ := strconv.Atoi(strings.TrimPrefix(data, callbackAskQuestion))
+		b.handleAskQuestion(ctx, chatID, aptID)
+
+	case strings.HasPrefix(data, callbackChatReply):
+		clientChatID, _ := strconv.ParseInt(strings.TrimPrefix(data, callbackChatReply), 10, 64)
+		b.handleChatReplyMode(chatID, clientChatID)
 	}
 }
 
@@ -571,6 +636,12 @@ func (b *Bot) editApartmentDetail(ctx context.Context, chatID int64, msgID int, 
 
 	btns := [][]tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📅 Забронировать на даты", fmt.Sprintf("%s%d", callbackBooking, aptID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💬 Задать вопрос", fmt.Sprintf("%s%d", callbackAskQuestion, aptID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к результатам", callbackSearch),
 		),
 	}
@@ -598,6 +669,389 @@ func (b *Bot) editApartmentDetail(ctx context.Context, chatID int64, msgID int, 
 		// Фото нет — редактируем существующее сообщение
 		_ = b.client.EditMessage(chatID, msgID, sb.String(), btns)
 	}
+}
+
+// ─── Booking flow ─────────────────────────────────────────────────────────────
+
+// startBookingCheckIn — показывает календарь выбора даты заезда.
+func (b *Bot) startBookingCheckIn(chatID int64, msgID, aptID int) {
+	b.mu.Lock()
+	s := b.getOrCreateSession(chatID)
+	s.bookingStep = 1
+	s.bookingAptID = aptID
+	s.bookingIn = time.Time{}
+	s.bookingOut = time.Time{}
+	b.mu.Unlock()
+
+	ctx := context.Background()
+	blockedDates, _ := b.bookingRepo.GetBlockedDates(ctx, aptID)
+
+	now := time.Now()
+	rows := buildCalendar(now.Year(), int(now.Month()), aptID, time.Time{}, now.Truncate(24*time.Hour), blockedDates)
+	text := "📅 *Выберите дату заезда:*"
+	_ = b.client.EditMessage(chatID, msgID, text, rows)
+}
+
+// handleCalNav — пользователь нажал < или > для смены месяца.
+func (b *Bot) handleCalNav(chatID int64, msgID int, from *tgbotapi.User, payload string) {
+	// payload: YYYY-MM:APTID
+	parts := strings.SplitN(payload, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+	aptID, _ := strconv.Atoi(parts[1])
+	var year, month int
+	fmt.Sscanf(parts[0], "%d-%d", &year, &month)
+
+	ctx := context.Background()
+	blockedDates, _ := b.bookingRepo.GetBlockedDates(ctx, aptID)
+
+	s := b.getOrCreateSession(chatID)
+	var checkIn time.Time
+	var minDay time.Time
+	if s.bookingStep == 1 {
+		minDay = time.Now().Truncate(24 * time.Hour)
+		checkIn = time.Time{}
+	} else {
+		minDay = s.bookingIn.Add(24 * time.Hour)
+		checkIn = s.bookingIn
+	}
+
+	rows := buildCalendar(year, month, aptID, checkIn, minDay, blockedDates)
+	var text string
+	if s.bookingStep == 2 {
+		text = fmt.Sprintf("📅 *Выберите дату выезда:*\n\nЗаезд: *%s*", s.bookingIn.Format("02.01.2006"))
+	} else {
+		text = "📅 *Выберите дату заезда:*"
+	}
+	_ = b.client.EditMessage(chatID, msgID, text, rows)
+}
+
+// handleCalDay — пользователь выбрал конкретный день.
+func (b *Bot) handleCalDay(ctx context.Context, chatID int64, msgID int, from *tgbotapi.User, payload string) {
+	// payload: YYYY-MM-DD:APTID
+	parts := strings.SplitN(payload, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+	aptID, _ := strconv.Atoi(parts[1])
+	day, err := time.Parse("2006-01-02", parts[0])
+	if err != nil {
+		return
+	}
+
+	b.mu.Lock()
+	s := b.getOrCreateSession(chatID)
+	step := s.bookingStep
+	b.mu.Unlock()
+
+	if step == 1 {
+		// Выбран заезд — показываем календарь выезда
+		b.mu.Lock()
+		s.bookingIn = day
+		s.bookingStep = 2
+		b.mu.Unlock()
+
+		blockedDates, _ := b.bookingRepo.GetBlockedDates(ctx, aptID)
+		minOut := day.Add(24 * time.Hour)
+		rows := buildCalendar(day.Year(), int(day.Month()), aptID, day, minOut, blockedDates)
+		text := fmt.Sprintf("📅 *Выберите дату выезда:*\n\nЗаезд: *%s*", day.Format("02.01.2006"))
+		_ = b.client.EditMessage(chatID, msgID, text, rows)
+
+	} else if step == 2 {
+		// Выбран выезд — показываем подтверждение
+		b.mu.Lock()
+		s.bookingOut = day
+		s.bookingStep = 3
+		checkIn := s.bookingIn
+		b.mu.Unlock()
+
+		b.editBookingConfirm(ctx, chatID, msgID, aptID, checkIn, day)
+	}
+}
+
+// editBookingConfirm — экран подтверждения бронирования.
+func (b *Bot) editBookingConfirm(ctx context.Context, chatID int64, msgID, aptID int, checkIn, checkOut time.Time) {
+	apt, err := b.aptRepo.GetByID(ctx, aptID)
+	if err != nil || apt == nil {
+		return
+	}
+	nights := int(checkOut.Sub(checkIn).Hours() / 24)
+	total := float64(nights) * apt.PricePerNight
+
+	text := fmt.Sprintf(
+		"🏠 *%s*\n\n📅 Заезд: *%s*\n📅 Выезд: *%s*\n🌙 Ночей: *%d*\n💰 Итого: *%.0f грн*\n\nПодтвердить бронирование?",
+		apt.Title,
+		checkIn.Format("02.01.2006"),
+		checkOut.Format("02.01.2006"),
+		nights,
+		total,
+	)
+
+	confirmPayload := fmt.Sprintf("%d:%s:%s", aptID,
+		checkIn.Format("2006-01-02"), checkOut.Format("2006-01-02"))
+
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", callbackBookingConfirm+confirmPayload),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✖️ Отмена", fmt.Sprintf("%s%d", callbackBookingCancel, aptID)),
+		),
+	}
+	_ = b.client.EditMessage(chatID, msgID, text, rows)
+}
+
+// confirmBooking — сохраняет бронирование в БД.
+func (b *Bot) confirmBooking(ctx context.Context, chatID int64, msgID int, from *tgbotapi.User, payload string) {
+	// payload: APTID:YYYY-MM-DD:YYYY-MM-DD
+	parts := strings.SplitN(payload, ":", 3)
+	if len(parts) != 3 {
+		return
+	}
+	aptID, _ := strconv.Atoi(parts[0])
+	checkIn, err1 := time.Parse("2006-01-02", parts[1])
+	checkOut, err2 := time.Parse("2006-01-02", parts[2])
+	if err1 != nil || err2 != nil {
+		return
+	}
+
+	apt, err := b.aptRepo.GetByID(ctx, aptID)
+	if err != nil || apt == nil {
+		return
+	}
+	nights := int(checkOut.Sub(checkIn).Hours() / 24)
+	total := float64(nights) * apt.PricePerNight
+
+	username := ""
+	firstName := ""
+	if from != nil {
+		username = from.UserName
+		firstName = from.FirstName
+	}
+	clientID, err := b.bookingRepo.GetOrCreateUser(ctx, chatID, firstName, username)
+	if err != nil {
+		log.Printf("bot: confirmBooking GetOrCreateUser: %v", err)
+		_ = b.client.EditMessage(chatID, msgID, "❌ Ошибка при создании бронирования. Попробуйте позже.", nil)
+		return
+	}
+
+	booking, err := b.bookingRepo.Create(ctx, aptID, clientID, checkIn, checkOut, 1, total)
+	if err != nil {
+		log.Printf("bot: confirmBooking Create: %v", err)
+		_ = b.client.EditMessage(chatID, msgID, "❌ Ошибка при создании бронирования. Попробуйте позже.", nil)
+		return
+	}
+
+	b.cancelBookingFlow(chatID, aptID)
+
+	text := fmt.Sprintf(
+		"✅ *Заявка на бронирование принята!*\n\n🏠 %s\n📅 %s — %s\n🌙 Ночей: %d\n💰 Сумма: *%.0f грн*\n\n📋 Номер заявки: *#%d*\n\nС вами свяжутся для подтверждения.",
+		apt.Title,
+		checkIn.Format("02.01.2006"),
+		checkOut.Format("02.01.2006"),
+		nights,
+		total,
+		booking.ID,
+	)
+
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к квартире", fmt.Sprintf("%s%d", callbackApartment, aptID)),
+		),
+	}
+	_ = b.client.EditMessage(chatID, msgID, text, rows)
+
+	// Уведомляем владельца квартиры
+	go b.notifyOwner(ctx, booking.ID, apt.Title, chatID, checkIn, checkOut, nights, total)
+}
+
+func (b *Bot) notifyOwner(ctx context.Context, bookingID int, aptTitle string, clientTgID int64, checkIn, checkOut time.Time, nights int, total float64) {
+	ownerTgID, err := b.bookingRepo.GetOwnerTelegramIDByBooking(ctx, bookingID)
+	if err != nil {
+		log.Printf("notifyOwner: GetOwnerTelegramIDByBooking: %v", err)
+		return
+	}
+
+	text := fmt.Sprintf(
+		"🔔 *Новая заявка на бронирование #%d*\n\n🏠 %s\n📅 %s — %s\n🌙 Ночей: %d\n💰 Сумма: *%.0f грн*\n\n👤 Клиент: tg id %d",
+		bookingID, aptTitle,
+		checkIn.Format("02.01.2006"),
+		checkOut.Format("02.01.2006"),
+		nights, total, clientTgID,
+	)
+
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("%s%d", callbackBookingApprove, bookingID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("%s%d", callbackBookingReject, bookingID)),
+		),
+	}
+	_ = b.client.SendMessageWithKeyboard(ownerTgID, text, rows)
+}
+
+func (b *Bot) handleBookingApprove(ctx context.Context, chatID int64, msgID int, payload string) {
+	bookingID, err := strconv.Atoi(payload)
+	if err != nil {
+		return
+	}
+	if err := b.bookingRepo.UpdateStatus(ctx, bookingID, "approved", ""); err != nil {
+		log.Printf("handleBookingApprove: UpdateStatus: %v", err)
+		return
+	}
+	_ = b.client.EditMessage(chatID, msgID, fmt.Sprintf("✅ Заявка *#%d* подтверждена.", bookingID), nil)
+
+	// Уведомляем клиента
+	booking, err := b.bookingRepo.GetByID(ctx, bookingID)
+	if err != nil || booking == nil {
+		return
+	}
+	clientTgID, err := b.bookingRepo.GetClientTelegramID(ctx, booking.ClientID)
+	if err != nil {
+		log.Printf("handleBookingApprove: GetClientTelegramID: %v", err)
+		return
+	}
+	_ = b.client.SendMessage(clientTgID, fmt.Sprintf("🎉 Ваша заявка *#%d* подтверждена! Ждём вас!", bookingID))
+}
+
+func (b *Bot) handleBookingReject(ctx context.Context, chatID int64, msgID int, payload string) {
+	bookingID, err := strconv.Atoi(payload)
+	if err != nil {
+		return
+	}
+	if err := b.bookingRepo.UpdateStatus(ctx, bookingID, "rejected", ""); err != nil {
+		log.Printf("handleBookingReject: UpdateStatus: %v", err)
+		return
+	}
+	_ = b.client.EditMessage(chatID, msgID, fmt.Sprintf("❌ Заявка *#%d* отклонена.", bookingID), nil)
+
+	// Уведомляем клиента
+	booking, err := b.bookingRepo.GetByID(ctx, bookingID)
+	if err != nil || booking == nil {
+		return
+	}
+	clientTgID, err := b.bookingRepo.GetClientTelegramID(ctx, booking.ClientID)
+	if err != nil {
+		log.Printf("handleBookingReject: GetClientTelegramID: %v", err)
+		return
+	}
+	_ = b.client.SendMessage(clientTgID, fmt.Sprintf("😔 Ваша заявка *#%d* отклонена. Попробуйте выбрать другие даты.", bookingID))
+}
+
+func (b *Bot) cancelBookingFlow(chatID int64, aptID int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if s, ok := b.sessions[chatID]; ok {
+		s.bookingStep = 0
+		s.bookingAptID = 0
+		s.bookingIn = time.Time{}
+		s.bookingOut = time.Time{}
+	}
+}
+
+func (b *Bot) getOrCreateSession(chatID int64) *session {
+	if s, ok := b.sessions[chatID]; ok {
+		return s
+	}
+	s := &session{filters: make(map[string]bool)}
+	b.sessions[chatID] = s
+	return s
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+// handleAskQuestion — клиент нажал "Задать вопрос" на карточке квартиры.
+func (b *Bot) handleAskQuestion(ctx context.Context, chatID int64, aptID int) {
+	apt, err := b.aptRepo.GetByID(ctx, aptID)
+	if err != nil || apt == nil {
+		_ = b.client.SendMessage(chatID, "❌ Не удалось найти квартиру.")
+		return
+	}
+	owner, err := b.userRepo.GetByID(ctx, apt.OwnerID)
+	if err != nil || owner == nil {
+		_ = b.client.SendMessage(chatID, "❌ Арендодатель не найден.")
+		return
+	}
+
+	b.mu.Lock()
+	s := b.getOrCreateSession(chatID)
+	s.chatAptID = aptID
+	s.chatOwnerTgID = owner.TelegramID
+	s.chatAptTitle = apt.Title
+	b.mu.Unlock()
+
+	_ = b.client.SendMessage(chatID,
+		"💬 Вы в режиме чата с арендодателем квартиры «"+apt.Title+"».\n\nНапишите ваш вопрос — я перешлю его.\nДля выхода из чата — /stopchat")
+}
+
+// handleChatMessage — обрабатывает текстовые сообщения (не команды).
+func (b *Bot) handleChatMessage(ctx context.Context, msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	text := msg.Text
+	if text == "" {
+		return
+	}
+
+	s := b.getSession(chatID)
+
+	// Клиент пишет арендодателю
+	if s.chatAptID > 0 {
+		senderName := msg.From.FirstName
+		if msg.From.UserName != "" {
+			senderName += " (@" + msg.From.UserName + ")"
+		}
+		fwdText := fmt.Sprintf("📨 *Вопрос от клиента* %s\n🏠 Квартира: %s\n\n%s",
+			escapeMarkdownV2(senderName),
+			escapeMarkdownV2(s.chatAptTitle),
+			escapeMarkdownV2(text),
+		)
+		rows := [][]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("💬 Ответить клиенту", fmt.Sprintf("%s%d", callbackChatReply, chatID)),
+			),
+		}
+		_ = b.client.SendMessageWithKeyboard(s.chatOwnerTgID, fwdText, rows)
+		_ = b.client.SendMessage(chatID, "✅ Ваш вопрос отправлен арендодателю.")
+		return
+	}
+
+	// Арендодатель отвечает клиенту
+	if s.replyToClientID != 0 {
+		fwdText := fmt.Sprintf("📨 *Ответ арендодателя:*\n\n%s",
+			escapeMarkdownV2(text),
+		)
+		_ = b.client.sendMarkdownV2(s.replyToClientID, fwdText)
+
+		b.mu.Lock()
+		s.replyToClientID = 0
+		b.mu.Unlock()
+
+		_ = b.client.SendMessage(chatID, "✅ Ответ отправлен клиенту.")
+		return
+	}
+}
+
+// handleChatReplyMode — арендодатель нажал "Ответить клиенту".
+func (b *Bot) handleChatReplyMode(ownerChatID int64, clientChatID int64) {
+	b.mu.Lock()
+	s := b.getOrCreateSession(ownerChatID)
+	s.replyToClientID = clientChatID
+	b.mu.Unlock()
+
+	_ = b.client.SendMessage(ownerChatID, "✏️ Режим ответа активирован. Напишите следующее сообщение — оно будет передано клиенту.")
+}
+
+// cmdStopChat — выход из режима чата.
+func (b *Bot) cmdStopChat(msg *tgbotapi.Message) {
+	b.mu.Lock()
+	s := b.getOrCreateSession(msg.Chat.ID)
+	s.chatAptID = 0
+	s.chatOwnerTgID = 0
+	s.chatAptTitle = ""
+	s.replyToClientID = 0
+	b.mu.Unlock()
+
+	_ = b.client.SendMessage(msg.Chat.ID, "🔕 Режим чата завершён.")
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

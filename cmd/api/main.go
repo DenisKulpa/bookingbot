@@ -46,6 +46,11 @@ func main() {
 	photoRepo := repository.NewPhotoRepository(database)
 	photoHandler := handler.NewPhotoHandler(photoRepo)
 
+	userRepo := repository.NewUserRepository(database)
+	landlordHandler := handler.NewLandlordHandler(userRepo)
+
+	bookingRepo := repository.NewBookingRepository(database)
+
 	// ── Telegram bot ──────────────────────────────────────────────────────────
 	tgClient, err := telegram.New(cfg.TelegramToken)
 	if err != nil {
@@ -53,7 +58,7 @@ func main() {
 	}
 	_, mainFile, _, _ := runtime.Caller(0)
 	uploadsRoot := filepath.Join(filepath.Dir(mainFile), "..", "..")
-	bot := telegram.NewBot(tgClient, zoneRepo, apartmentRepo, photoRepo, uploadsRoot)
+	bot := telegram.NewBot(tgClient, zoneRepo, apartmentRepo, photoRepo, bookingRepo, userRepo, uploadsRoot)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -73,6 +78,14 @@ func main() {
 		r.Get("/apartments/{id}/photos", photoHandler.List)
 		r.Post("/apartments/{id}/photos", photoHandler.Upload)
 		r.Delete("/photos/{id}", photoHandler.Delete)
+
+		// Арендодатели
+		r.Get("/landlords", landlordHandler.List)
+		r.Post("/landlords", landlordHandler.Create)
+		r.Get("/landlords/{id}", landlordHandler.Get)
+		r.Put("/landlords/{id}", landlordHandler.Update)
+		r.Delete("/landlords/{id}", landlordHandler.Delete)
+		r.Get("/landlords/{id}/apartments", landlordHandler.Apartments)
 	})
 
 	// Статические файлы: GET /uploads/apartments/{id}/filename.jpg
