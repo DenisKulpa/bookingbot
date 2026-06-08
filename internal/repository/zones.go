@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/DenisKulpa/bookingbot/internal/model"
 )
@@ -148,6 +149,11 @@ func (r *ZoneRepository) getZoneByID(ctx context.Context, id int) (*model.Zone, 
 	return z, nil
 }
 
+// GetSubzonesFlat возвращает все дочерние зоны (публичный метод).
+func (r *ZoneRepository) GetSubzonesFlat(ctx context.Context, parentID int) ([]*model.Zone, error) {
+	return r.getSubzones(ctx, parentID)
+}
+
 func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*model.Zone, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, short_desc, full_desc, sort_order
@@ -177,4 +183,41 @@ func (r *ZoneRepository) getSubzones(ctx context.Context, parentID int) ([]*mode
 	}
 
 	return subzones, nil
+}
+
+// GetFilterCodes возвращает коды filter_options, соответствующие указанным zone_id
+// (сопоставление по zones.name = filter_options.name, только для кодов zone_*).
+func (r *ZoneRepository) GetFilterCodes(ctx context.Context, zoneIDs ...int) ([]string, error) {
+	if len(zoneIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(zoneIDs))
+	args := make([]any, len(zoneIDs))
+	for i, id := range zoneIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	q := fmt.Sprintf(`
+		SELECT DISTINCT fo.code
+		FROM filter_options fo
+		JOIN zones z ON z.name = fo.name
+		WHERE z.id IN (%s) AND fo.code LIKE 'zone_%%'
+	`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("GetFilterCodes: %w", err)
+	}
+	defer rows.Close()
+
+	var codes []string
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, fmt.Errorf("GetFilterCodes scan: %w", err)
+		}
+		codes = append(codes, code)
+	}
+	return codes, rows.Err()
 }

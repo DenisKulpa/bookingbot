@@ -8,29 +8,79 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
-func New(dataSourceName string) (*sql.DB, error) {
+func New(dataSourceName, dbName string) (*sql.DB, error) {
 	log.Printf("db: connecting to postgres")
-	database, err := sql.Open("postgres", dataSourceName)
+
+	// Пробуем подключиться к целевой базе
+	database, err := tryConnect(dataSourceName)
+	if err != nil && isDBMissing(err) {
+		// Базы нет — создаём через подключение к postgres
+		log.Printf("db: database %s not found, creating...", dbName)
+
+		sysDSN := replaceDBName(dataSourceName, "postgres")
+		sysDB, cerr := sql.Open("postgres", sysDSN)
+		if cerr != nil {
+			return nil, fmt.Errorf("db.New connect to postgres: %w", cerr)
+		}
+		defer sysDB.Close()
+
+		if _, cerr := sysDB.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); cerr != nil {
+			return nil, fmt.Errorf("db.New create database: %w", cerr)
+		}
+		log.Printf("db: database %s created", dbName)
+
+		// Переподключаемся к созданной базе
+		database, err = tryConnect(dataSourceName)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("db.New: %w", err)
+		return nil, err
 	}
 
 	database.SetMaxOpenConns(25)
 	database.SetMaxIdleConns(5)
-
-	if err := database.Ping(); err != nil {
-		return nil, fmt.Errorf("db.Ping: %w", err)
-	}
 
 	if err := runMigrations(database); err != nil {
 		return nil, fmt.Errorf("db migrations: %w", err)
 	}
 
 	return database, nil
+}
+
+func tryConnect(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("db.New: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// isDBMissing проверяет, что ошибка — «база данных не существует» (SQLSTATE 3D000).
+func isDBMissing(err error) bool {
+	if pqErr, ok := err.(*pq.Error); ok {
+		return pqErr.Code == "3D000"
+	}
+	return false
+}
+
+// replaceDBName заменяет dbname в key=value DSN
+func replaceDBName(dsn, newName string) string {
+	parts := strings.Fields(dsn)
+	for i, part := range parts {
+		if strings.HasPrefix(part, "dbname=") {
+			parts[i] = "dbname=" + newName
+			return strings.Join(parts, " ")
+		}
+	}
+	return dsn + " dbname=" + newName
 }
 
 func runMigrations(db *sql.DB) error {
@@ -72,9 +122,12 @@ func runMigrations(db *sql.DB) error {
 			return fmt.Errorf("begin transaction for %s: %w", version, err)
 		}
 
-		if _, err := tx.Exec(string(content)); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", version, err)
+		// Выполняем каждый оператор отдельно (pq не поддерживает multi-statement Exec)
+		for _, stmt := range splitSQL(string(content)) {
+			if _, err := tx.Exec(stmt); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("apply migration %s: %w", version, err)
+			}
 		}
 
 		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
@@ -102,10 +155,82 @@ func RunSeed(database *sql.DB) error {
 		return fmt.Errorf("read seed file: %w", err)
 	}
 
-	if _, err := database.Exec(string(content)); err != nil {
-		return fmt.Errorf("run seed: %w", err)
+	for _, stmt := range splitSQL(string(content)) {
+		if _, err := database.Exec(stmt); err != nil {
+			return fmt.Errorf("run seed: %w", err)
+		}
 	}
 
 	log.Printf("db: seed applied from %s", filepath.Base(seedFile))
 	return nil
+}
+
+// splitSQL разбивает SQL-текст на отдельные операторы по ; (игнорируя пустые строки и комментарии).
+func splitSQL(sql string) []string {
+	var stmts []string
+	var current []byte
+	inString := false
+	inDollar := false
+
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+
+		// Отслеживаем строки и доллар-квотинг
+		if c == '\'' && !inDollar {
+			inString = !inString
+		}
+		if i+1 < len(sql) && sql[i] == '$' && sql[i+1] == '$' && !inString {
+			inDollar = !inDollar
+			current = append(current, c)
+			i++
+			current = append(current, sql[i])
+			continue
+		}
+
+		if c == ';' && !inString && !inDollar {
+			stmt := trimSQL(string(current))
+			if stmt != "" {
+				stmts = append(stmts, stmt)
+			}
+			current = nil
+			continue
+		}
+
+		current = append(current, c)
+	}
+
+	stmt := trimSQL(string(current))
+	if stmt != "" {
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts
+}
+
+func trimSQL(s string) string {
+	s = strings.TrimSpace(s)
+	// Убираем строки-комментарии (-- ...)
+	var lines []string
+	for _, line := range splitLines(s) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "--") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
 }

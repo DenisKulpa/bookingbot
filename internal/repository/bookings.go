@@ -184,3 +184,47 @@ func (r *BookingRepository) GetOwnerTelegramIDByBooking(ctx context.Context, boo
 	}
 	return tgID, nil
 }
+
+// PendingBooking — бронь + название квартиры для уведомлений арендодателя.
+type PendingBooking struct {
+	model.Booking
+	ApartmentTitle string
+	ClientName     string
+	ClientUsername string
+}
+
+// GetPendingByOwner возвращает все pending-брони по квартирам арендодателя.
+func (r *BookingRepository) GetPendingByOwner(ctx context.Context, ownerID int) ([]*PendingBooking, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT b.id, b.apartment_id, b.client_id, b.check_in, b.check_out,
+		       b.guests_count, b.total_price, b.status, COALESCE(b.admin_note,''),
+		       b.created_at, b.updated_at,
+		       a.title,
+		       COALESCE(u.first_name,''), COALESCE(u.username,'')
+		FROM bookings b
+		JOIN apartments a ON a.id = b.apartment_id
+		JOIN users u ON u.id = b.client_id
+		WHERE a.owner_id = $1
+		  AND b.status = 'pending_approval'
+		ORDER BY b.created_at DESC
+	`, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("GetPendingByOwner: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*PendingBooking
+	for rows.Next() {
+		pb := &PendingBooking{}
+		if err := rows.Scan(
+			&pb.ID, &pb.ApartmentID, &pb.ClientID, &pb.CheckIn, &pb.CheckOut,
+			&pb.GuestsCount, &pb.TotalPrice, &pb.Status, &pb.AdminNote,
+			&pb.CreatedAt, &pb.UpdatedAt,
+			&pb.ApartmentTitle, &pb.ClientName, &pb.ClientUsername,
+		); err != nil {
+			return nil, fmt.Errorf("GetPendingByOwner scan: %w", err)
+		}
+		result = append(result, pb)
+	}
+	return result, rows.Err()
+}

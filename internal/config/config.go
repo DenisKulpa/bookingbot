@@ -12,6 +12,7 @@ import (
 type Config struct {
 	TelegramToken string
 	DatabaseURL   string
+	DBName        string
 	ServerPort    string
 	Seed          bool
 }
@@ -36,9 +37,15 @@ func Load() (*Config, error) {
 		port = "8080"
 	}
 
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "znimai"
+	}
+
 	return &Config{
 		TelegramToken: token,
 		DatabaseURL:   databaseURL,
+		DBName:        dbName,
 		ServerPort:    port,
 		Seed:          os.Getenv("SEED") == "true",
 	}, nil

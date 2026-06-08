@@ -19,3 +19,14 @@ CREATE TABLE IF NOT EXISTS zones (
 
 CREATE INDEX IF NOT EXISTS idx_zones_parent_id ON zones(parent_id);
 CREATE INDEX IF NOT EXISTS idx_zones_is_active ON zones(is_active);
+
+-- Защита от дубликатов: одна зона — одно имя
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'uq_zones_name' AND conrelid = 'zones'::regclass
+    ) THEN
+        ALTER TABLE zones ADD CONSTRAINT uq_zones_name UNIQUE (name);
+    END IF;
+END $$;

@@ -12,6 +12,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/DenisKulpa/bookingbot/internal/model"
 	"github.com/DenisKulpa/bookingbot/internal/repository"
 )
 
@@ -32,94 +33,23 @@ const (
 	callbackBookingReject  = "booking_reject:"
 	callbackAskQuestion    = "ask_question:"
 	callbackChatReply      = "chat_reply:"
+	// Визард добавления квартиры
+	callbackWizardZone        = "wz_zone:"
+	callbackWizardFilterCat   = "wz_fcat:"
+	callbackWizardToggle      = "wz_tog:"
+	callbackWizardDonePhotos  = "wz_done_photos"
+	callbackWizardDoneFilters = "wz_done_filters"
+	callbackWizardBackFilters = "wz_back_filters"
+	callbackWizardConfirm     = "wz_confirm"
+	callbackWizardCancel      = "wz_cancel"
+	callbackMyApartments      = "my_apartments"
+	callbackIncomingBookings  = "incoming_bookings"
+	callbackAddApartment      = "add_apartment"
+	callbackEditApartment     = "edit_apt:"
+	callbackDeletePhoto       = "del_photo:"
 )
 
-// ─── Filter data ─────────────────────────────────────────────────────────[...]
-
-type filterOption struct {
-	Code  string
-	Label string
-}
-
-type filterCategory struct {
-	Code    string
-	Label   string
-	Options []filterOption
-}
-
-var filterCategories = []filterCategory{
-	{Code: "location", Label: "📍 Локация", Options: []filterOption{
-		{"zone_gagarin_plaza", "Гагарин Плаза"},
-		{"zone_elegiya_park", "Элегия Парк"},
-		{"zone_rodos_ellada", "Родос / Эллада"},
-		{"zone_akropol", "Акрополь"},
-		{"zone_kamanina", "Каманина"},
-		{"zone_morskaya", "Морская сторона"},
-		{"zone_genuezskaya", "Генуэзская"},
-		{"zone_arkadiyskaya_alleya", "Аркадийская аллея"},
-		{"zone_ibiza_itaka", "Район Ibiza / Itaka"},
-		{"zone_tihaya_arkadiya", "Тихая Аркадия"},
-		{"zone_park_pobedy", "Ближе к Парку Победы"},
-		{"zone_trassa_zdorovya", "Ближе к трассе здоровья"},
-	}},
-	{Code: "sea_distance", Label: "🌊 Расстояние до моря", Options: []filterOption{
-		{"sea_1_3_min", "До моря 1–3 мин"},
-		{"sea_5_min", "До моря 5 мин"},
-		{"sea_first_line", "Первая линия"},
-		{"sea_direct_view", "Вид прямо на море"},
-		{"sea_side_view", "Боковой вид на море"},
-		{"view_city", "Вид на город"},
-		{"view_sunset", "Вид на закат"},
-		{"view_yard", "Вид во двор"},
-		{"side_quiet", "Тихая сторона"},
-		{"side_south", "Южная сторона"},
-		{"side_east", "Восточная сторона"},
-		{"side_west", "Западная сторона"},
-	}},
-	{Code: "apartment_type", Label: "🏠 Тип квартиры", Options: []filterOption{
-		{"type_studio", "Студия"},
-		{"type_1room", "1-комнатная"},
-		{"type_2room", "2-комнатная"},
-		{"type_penthouse", "Пентхаус"},
-		{"type_apartments", "Апартаменты"},
-		{"type_family", "Семейная квартира"},
-	}},
-	{Code: "balcony", Label: "🏗 Балкон / терраса", Options: []filterOption{
-		{"has_balcony", "Есть балкон"},
-		{"big_terrace", "Большая терраса"},
-		{"panoramic_windows", "Панорамные окна"},
-		{"smoking_terrace", "Можно курить на террасе"},
-		{"no_smoking", "Курение запрещено"},
-		{"terrace_furniture", "Мебель на террасе"},
-		{"terrace_sunbeds", "Лежаки / зона отдыха"},
-	}},
-	{Code: "sleeping", Label: "🛏 Спальные места", Options: []filterOption{
-		{"sleep_double_bed", "Двуспальная кровать"},
-		{"sleep_king_size", "King Size"},
-		{"sleep_sofa", "Диван"},
-		{"sleep_sofa_bed", "Раскладной диван"},
-		{"sleep_single_beds", "Отдельные кровати"},
-		{"sleep_child_bed", "Детская кровать"},
-	}},
-	{Code: "electricity", Label: "⚡ Электричество и автономность", Options: []filterOption{
-		{"elec_generator", "Генератор в доме"},
-		{"elec_ups", "Бесперебойник"},
-		{"elec_battery", "Аккумуляторы"},
-		{"elec_internet_blackout", "Интернет при отключении света"},
-		{"elec_elevator_blackout", "Лифт работает при blackout"},
-		{"elec_water_blackout", "Есть вода при отключении"},
-	}},
-	{Code: "safety", Label: "🔒 Дом и безопасность", Options: []filterOption{
-		{"safety_guard", "Охрана"},
-		{"safety_concierge", "Консьерж"},
-		{"safety_closed_area", "Закрытая территория"},
-		{"safety_cctv", "Видеонаблюдение"},
-		{"safety_parking", "Паркинг"},
-		{"safety_underground_parking", "Подземный паркинг"},
-		{"safety_pets", "Можно с животными"},
-		{"safety_self_checkin", "Self check-in"},
-	}},
-}
+// ─── Filter data (загружается из БД при старте) ─────────────────────────────
 
 func filterListText(filters map[string]bool) string {
 	count := 0
@@ -134,9 +64,9 @@ func filterListText(filters map[string]bool) string {
 	return fmt.Sprintf("🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыбрано фильтров: *%d*\nВыберите категорию:", count)
 }
 
-func filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboardButton {
+func (b *Bot) filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboardButton {
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, cat := range filterCategories {
+	for _, cat := range b.filterCats {
 		hasActive := false
 		for _, opt := range cat.Options {
 			if filters[opt.Code] {
@@ -180,11 +110,16 @@ type Bot struct {
 	bookingRepo *repository.BookingRepository
 	userRepo    *repository.UserRepository
 	uploadsRoot string
+	filterCats  []model.FilterCategory
 	mu          sync.Mutex
 	sessions    map[int64]*session
 }
 
 func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *repository.ApartmentRepository, photoRepo *repository.PhotoRepository, bookingRepo *repository.BookingRepository, userRepo *repository.UserRepository, uploadsRoot string) *Bot {
+	filterCats, err := aptRepo.GetAllCategories(context.Background())
+	if err != nil {
+		log.Printf("bot: failed to load filter categories: %v", err)
+	}
 	return &Bot{
 		client:      client,
 		zoneRepo:    zoneRepo,
@@ -193,6 +128,7 @@ func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *reposi
 		bookingRepo: bookingRepo,
 		userRepo:    userRepo,
 		uploadsRoot: uploadsRoot,
+		filterCats:  filterCats,
 		sessions:    make(map[int64]*session),
 	}
 }
@@ -200,15 +136,28 @@ func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *reposi
 type session struct {
 	filters map[string]bool
 	// Бронирование
-	bookingStep  int // 0=нет, 1=выбор check-in, 2=выбор check-out
+	bookingStep  int
 	bookingAptID int
 	bookingIn    time.Time
 	bookingOut   time.Time
 	// Чат
-	chatAptID       int   // > 0 — клиент в режиме чата с владельцем этой квартиры
-	chatOwnerTgID   int64 // telegram_id владельца квартиры
+	chatAptID       int
+	chatOwnerTgID   int64
 	chatAptTitle    string
-	replyToClientID int64 // > 0 — арендодатель отвечает этому клиенту (chat_id)
+	replyToClientID int64
+	// Визард добавления квартиры (0=нет, 1=title, 2=desc, 3=addr, 4=zone, 5=rooms, 6=price, 7=photos, 8=filters, 9=confirm)
+	addAptStep     int
+	addAptTitle    string
+	addAptDesc     string
+	addAptAddr     string
+	addAptZoneID   int
+	addAptRooms    int
+	addAptPrice    float64
+	addAptPhotoIDs []string
+	addAptFilters  map[string]bool
+	// Редактирование квартиры (0=нет, 1=title, 2=desc, 3=addr, 4=price)
+	editAptID   int
+	editAptStep int
 }
 
 func (b *Bot) getSession(chatID int64) *session {
@@ -289,6 +238,14 @@ func (b *Bot) handleUpdate(ctx context.Context, u *tgbotapi.Update) {
 
 func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	if !msg.IsCommand() {
+		// Фото для визарда (добавление или редактирование — оба используют один визард)
+		if msg.Photo != nil {
+			s := b.getSession(msg.Chat.ID)
+			if s.addAptStep == wStepPhotos {
+				b.handleWizardPhoto(ctx, msg)
+				return
+			}
+		}
 		b.handleChatMessage(ctx, msg)
 		return
 	}
@@ -312,6 +269,14 @@ func (b *Bot) cmdStart(ctx context.Context, msg *tgbotapi.Message) {
 	if name == "" {
 		name = msg.From.UserName
 	}
+
+	// Проверяем роль
+	user, _ := b.userRepo.GetByTelegramID(ctx, msg.Chat.ID)
+	if user != nil && (user.Role == "landlord" || user.Role == "admin" || user.Role == "super_admin") {
+		b.sendLandlordMenu(msg.Chat.ID, name)
+		return
+	}
+
 	text := fmt.Sprintf("👋 Привет, *%s*\\!\n\nЯ помогу найти и забронировать квартиру в Одессе\\.", escapeMarkdownV2(name))
 	_ = b.client.sendMarkdownV2(msg.Chat.ID, text)
 	b.sendFilterList(msg.Chat.ID)
@@ -414,6 +379,54 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	case strings.HasPrefix(data, callbackChatReply):
 		clientChatID, _ := strconv.ParseInt(strings.TrimPrefix(data, callbackChatReply), 10, 64)
 		b.handleChatReplyMode(chatID, clientChatID)
+
+	// ── Landlord menu ──
+	case data == callbackMyApartments:
+		b.sendMyApartments(ctx, chatID, msgID)
+
+	case data == callbackIncomingBookings:
+		b.sendIncomingBookings(ctx, chatID, msgID)
+
+	case data == callbackAddApartment:
+		b.startAddApartment(ctx, chatID)
+
+	case strings.HasPrefix(data, callbackEditApartment):
+		aptID, _ := strconv.Atoi(strings.TrimPrefix(data, callbackEditApartment))
+		b.startEditApartment(ctx, chatID, msgID, aptID)
+
+	case strings.HasPrefix(data, callbackDeletePhoto):
+		photoID, _ := strconv.Atoi(strings.TrimPrefix(data, callbackDeletePhoto))
+		b.handleDeletePhoto(ctx, chatID, msgID, photoID)
+
+	// ── Wizard callbacks ──
+	case strings.HasPrefix(data, callbackWizardZone):
+		zoneID, _ := strconv.Atoi(strings.TrimPrefix(data, callbackWizardZone))
+		b.wizardSelectZone(ctx, chatID, msgID, zoneID)
+
+	case strings.HasPrefix(data, callbackWizardFilterCat):
+		catCode := strings.TrimPrefix(data, callbackWizardFilterCat)
+		b.wizardShowFilterCat(chatID, msgID, catCode)
+
+	case strings.HasPrefix(data, callbackWizardToggle):
+		code := strings.TrimPrefix(data, callbackWizardToggle)
+		b.wizardToggleFilter(chatID, code)
+		catCode := b.findCategoryByFilterCode(code)
+		b.wizardShowFilterCat(chatID, msgID, catCode)
+
+	case data == callbackWizardDonePhotos:
+		b.wizardDonePhotos(chatID, msgID)
+
+	case data == callbackWizardDoneFilters:
+		b.wizardShowConfirm(ctx, chatID, msgID)
+
+	case data == callbackWizardBackFilters:
+		b.wizardEditFilterList(chatID, msgID)
+
+	case data == callbackWizardConfirm:
+		b.wizardSaveApartment(ctx, chatID, msgID, cq.From)
+
+	case data == callbackWizardCancel:
+		b.wizardCancel(chatID, msgID)
 	}
 }
 
@@ -421,19 +434,19 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 
 func (b *Bot) sendFilterList(chatID int64) {
 	filters := b.activeFilters(chatID)
-	_ = b.client.SendMessageWithKeyboard(chatID, filterListText(filters), filterListRows(filters))
+	_ = b.client.SendMessageWithKeyboard(chatID, filterListText(filters), b.filterListRows(filters))
 }
 
 func (b *Bot) editFilterList(chatID int64, msgID int) {
 	filters := b.activeFilters(chatID)
-	_ = b.client.EditMessage(chatID, msgID, filterListText(filters), filterListRows(filters))
+	_ = b.client.EditMessage(chatID, msgID, filterListText(filters), b.filterListRows(filters))
 }
 
 func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
-	var cat *filterCategory
-	for i := range filterCategories {
-		if filterCategories[i].Code == catCode {
-			cat = &filterCategories[i]
+	var cat *model.FilterCategory
+	for i := range b.filterCats {
+		if b.filterCats[i].Code == catCode {
+			cat = &b.filterCats[i]
 			break
 		}
 	}
@@ -454,13 +467,16 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 		))
 	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("🔍 Показать результаты", callbackSearch),
+	))
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
 	))
 	_ = b.client.EditMessage(chatID, msgID, cat.Label+"\n\nВыберите подходящие опции:", rows)
 }
 
 func (b *Bot) findCategoryByFilterCode(filterCode string) string {
-	for _, cat := range filterCategories {
+	for _, cat := range b.filterCats {
 		for _, opt := range cat.Options {
 			if opt.Code == filterCode {
 				return cat.Code
@@ -475,7 +491,7 @@ func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
 
 	var selected []string
 	var selectedCodes []string
-	for _, cat := range filterCategories {
+	for _, cat := range b.filterCats {
 		for _, opt := range cat.Options {
 			if filters[opt.Code] {
 				selected = append(selected, opt.Label)
@@ -484,34 +500,49 @@ func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
 		}
 	}
 
-	apts, err := b.aptRepo.GetByFilters(ctx, selectedCodes)
-	if err != nil || len(apts) == 0 {
-		_ = b.client.EditMessage(chatID, msgID,
-			"😔 По выбранным фильтрам квартир не найдено.",
-			[][]tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
-				),
-			},
-		)
-		return
-	}
-
 	var sb strings.Builder
-	if len(selected) > 0 {
-		sb.WriteString(fmt.Sprintf("🔍 *Результаты поиска*\n\nФильтры: %s\n\n", strings.Join(selected, " • ")))
-	} else {
-		sb.WriteString("🔍 *Все доступные квартиры в Аркадии:*\n\n")
-	}
-	sb.WriteString(fmt.Sprintf("Найдено квартир: *%d*", len(apts)))
-
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, apt := range apts {
-		label := fmt.Sprintf("🏠 %s — %.0f грн/ночь", apt.Title, apt.PricePerNight)
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(label, callbackApartment+fmt.Sprint(apt.ID)),
-		))
+
+	if len(selectedCodes) > 0 {
+		apts, err := b.aptRepo.GetByFilters(ctx, selectedCodes)
+		if err != nil || len(apts) == 0 {
+			_ = b.client.EditMessage(chatID, msgID,
+				"😔 По выбранным фильтрам квартир не найдено.",
+				[][]tgbotapi.InlineKeyboardButton{
+					tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
+					),
+				},
+			)
+			return
+		}
+		sb.WriteString(fmt.Sprintf("🔍 *Результаты поиска*\n\nФильтры: %s\n\n", strings.Join(selected, " • ")))
+		sb.WriteString(fmt.Sprintf("Найдено квартир: *%d*", len(apts)))
+		for _, apt := range apts {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("🏠 %s — %.0f грн/ночь", apt.Title, apt.PricePerNight),
+					callbackApartment+fmt.Sprint(apt.ID)),
+			))
+		}
+	} else {
+		// Без фильтров — первые 10 + общее количество + предложение уточнить
+		apts, total, err := b.aptRepo.GetAllAvailableLimited(ctx, 10)
+		if err != nil || len(apts) == 0 {
+			_ = b.client.EditMessage(chatID, msgID, "😔 Нет доступных квартир.", nil)
+			return
+		}
+		sb.WriteString(fmt.Sprintf("🏖 *Все доступные квартиры*\n\nВсего в базе: *%d*\nПоказаны первые *%d*:\n\n", total, len(apts)))
+		sb.WriteString("💡 *Используйте фильтры*, чтобы найти квартиру под ваши требования.\n\nНажмите «⬅️ Назад к фильтрам» и выберите нужные опции.")
+		for _, apt := range apts {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("🏠 %s — %.0f грн/ночь", apt.Title, apt.PricePerNight),
+					callbackApartment+fmt.Sprint(apt.ID)),
+			))
+		}
 	}
+
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к фильтрам", callbackBackFilters),
 	))
@@ -641,9 +672,24 @@ func (b *Bot) editApartmentDetail(ctx context.Context, chatID int64, msgID int, 
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("💬 Задать вопрос", fmt.Sprintf("%s%d", callbackAskQuestion, aptID)),
 		),
-		tgbotapi.NewInlineKeyboardRow(
+	}
+
+	// Кнопка "Назад" и "Редактировать" зависят от роли
+	user, _ := b.userRepo.GetByTelegramID(ctx, chatID)
+	if user != nil && (user.Role == "landlord" || user.Role == "admin" || user.Role == "super_admin") {
+		// Кнопка редактирования — только если это квартира этого арендодателя (или админ)
+		if user.Role == "admin" || user.Role == "super_admin" || apt.OwnerID == user.ID {
+			btns = append(btns, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✏️ Редактировать", fmt.Sprintf("%s%d", callbackEditApartment, aptID)),
+			))
+		}
+		btns = append(btns, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к панели", callbackMyApartments),
+		))
+	} else {
+		btns = append(btns, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к результатам", callbackSearch),
-		),
+		))
 	}
 
 	// Загружаем фото квартиры
@@ -993,6 +1039,12 @@ func (b *Bot) handleChatMessage(ctx context.Context, msg *tgbotapi.Message) {
 	}
 
 	s := b.getSession(chatID)
+
+	// Визард добавления квартиры — перехватываем текст
+	if s.addAptStep > 0 {
+		b.wizardHandleText(ctx, chatID, text)
+		return
+	}
 
 	// Клиент пишет арендодателю
 	if s.chatAptID > 0 {
