@@ -137,7 +137,7 @@ func (b *Bot) startAddApartment(ctx context.Context, chatID int64) {
 	s.addAptTitle = ""
 	s.addAptDesc = ""
 	s.addAptAddr = ""
-	s.addAptZoneID = 0
+	s.addAptSubzoneID = 0
 	s.addAptRooms = 1
 	s.addAptPrice = 0
 	s.addAptPhotoIDs = nil
@@ -220,9 +220,9 @@ func (b *Bot) wizardHandleText(ctx context.Context, chatID int64, text string) {
 	}
 }
 
-// wizardShowZones — показывает список зон для выбора.
+// wizardShowZones — показывает дерево зон (Город → Район → Подрайон).
 func (b *Bot) wizardShowZones(ctx context.Context, chatID int64) {
-	zones, err := b.zoneRepo.GetSubzonesFlat(ctx, 3) // parent_id=3 Аркадия
+	cities, zoneMap, subMap, err := b.zoneRepo.GetSubzoneTree(ctx)
 	if err != nil {
 		log.Printf("wizardShowZones: %v", err)
 		_ = b.client.SendMessage(chatID, "❌ Ошибка загрузки зон.")
@@ -230,22 +230,59 @@ func (b *Bot) wizardShowZones(ctx context.Context, chatID int64) {
 	}
 
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, z := range zones {
+	for _, c := range cities {
+		// Город — заголовок
+		label := c.Name
+		if c.Emoji != "" {
+			label = c.Emoji + " " + c.Name
+		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(z.Name, callbackWizardZone+strconv.Itoa(z.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("🏙 "+label, callbackCalIgnore),
 		))
+		for _, z := range zoneMap[c.ID] {
+			subs := subMap[z.ID]
+			if len(subs) == 0 {
+				// Зона без подзон — кликабельна
+				zLabel := "  └ " + z.Name
+				if z.Emoji != "" {
+					zLabel = "  └ " + z.Emoji + " " + z.Name
+				}
+				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(zLabel, callbackWizardZone+strconv.Itoa(z.ID)),
+				))
+			} else {
+				// Зона с подзонами — заголовок
+				zLabel := "  " + z.Name
+				if z.Emoji != "" {
+					zLabel = "  " + z.Emoji + " " + z.Name
+				}
+				rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(zLabel, callbackCalIgnore),
+				))
+				for _, s := range subs {
+					sLabel := "    └ " + s.Name
+					if s.Emoji != "" {
+						sLabel = "    └ " + s.Emoji + " " + s.Name
+					}
+					rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData(sLabel, callbackWizardZone+strconv.Itoa(s.ID)),
+					))
+				}
+			}
+		}
 	}
+
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("⏭ Пропустить", callbackWizardZone+"0"),
 	))
-	_ = b.client.SendMessageWithKeyboard(chatID, "Шаг 4/8 — Выберите *зону* в Аркадии:", rows)
+	_ = b.client.SendMessageWithKeyboard(chatID, "Шаг 4/8 — Выберите *зону*:", rows)
 }
 
 // wizardSelectZone — пользователь выбрал зону.
 func (b *Bot) wizardSelectZone(ctx context.Context, chatID int64, msgID int, zoneID int) {
 	b.mu.Lock()
 	s := b.getOrCreateSession(chatID)
-	s.addAptZoneID = zoneID
+	s.addAptSubzoneID = zoneID
 	s.addAptStep = wStepRooms
 	b.mu.Unlock()
 
@@ -406,13 +443,13 @@ func (b *Bot) wizardShowConfirm(ctx context.Context, chatID int64, msgID int) {
 
 	_ = b.client.EditMessage(chatID, msgID, "✅ Фильтры выбраны!", nil)
 
-	zoneLabel := "не указана"
-	if s.addAptZoneID > 0 {
-		zones, err := b.zoneRepo.GetSubzonesFlat(ctx, 3)
+	subzoneLabel := "не указана"
+	if s.addAptSubzoneID > 0 {
+		zones, err := b.zoneRepo.GetAssignableSubzones(ctx)
 		if err == nil {
 			for _, z := range zones {
-				if z.ID == s.addAptZoneID {
-					zoneLabel = z.Name
+				if z.ID == s.addAptSubzoneID {
+					subzoneLabel = z.Name
 					break
 				}
 			}
@@ -445,7 +482,7 @@ func (b *Bot) wizardShowConfirm(ctx context.Context, chatID int64, msgID int) {
 		s.addAptTitle,
 		strDefault(s.addAptDesc, "не указано"),
 		strDefault(s.addAptAddr, "не указан"),
-		zoneLabel,
+		subzoneLabel,
 		s.addAptRooms,
 		s.addAptPrice,
 		len(s.addAptPhotoIDs),
@@ -473,10 +510,10 @@ func (b *Bot) wizardSaveApartment(ctx context.Context, chatID int64, msgID int, 
 		return
 	}
 
-	var zoneIDPtr *int
-	if s.addAptZoneID > 0 {
-		zid := s.addAptZoneID
-		zoneIDPtr = &zid
+	var subzoneIDPtr *int
+	if s.addAptSubzoneID > 0 {
+		zid := s.addAptSubzoneID
+		subzoneIDPtr = &zid
 	}
 
 	// Извлекаем тип квартиры из фильтров (type_studio → studio, type_1room → 1room, ...)
@@ -494,7 +531,7 @@ func (b *Bot) wizardSaveApartment(ctx context.Context, chatID int64, msgID int, 
 	if isEdit {
 		// Обновление существующей квартиры
 		aptID = s.editAptID
-		_, err = b.aptRepo.UpdateFull(ctx, aptID, zoneIDPtr, s.addAptTitle, s.addAptDesc, s.addAptAddr,
+		_, err = b.aptRepo.UpdateFull(ctx, aptID, subzoneIDPtr, s.addAptTitle, s.addAptDesc, s.addAptAddr,
 			aptType, s.addAptRooms, s.addAptPrice)
 		if err != nil {
 			log.Printf("wizardSaveApartment UpdateFull: %v", err)
@@ -506,7 +543,7 @@ func (b *Bot) wizardSaveApartment(ctx context.Context, chatID int64, msgID int, 
 	} else {
 		// Создание новой
 		apt, err := b.aptRepo.Create(ctx,
-			user.ID, zoneIDPtr,
+			user.ID, subzoneIDPtr,
 			s.addAptTitle, s.addAptDesc, s.addAptAddr, aptType,
 			s.addAptRooms, s.addAptRooms*2,
 			s.addAptPrice,
@@ -552,8 +589,8 @@ func (b *Bot) wizardSaveApartment(ctx context.Context, chatID int64, msgID int, 
 			filterCodes = append(filterCodes, code)
 		}
 	}
-	if s.addAptZoneID > 0 {
-		zoneCodes, err := b.zoneRepo.GetFilterCodes(ctx, s.addAptZoneID)
+	if s.addAptSubzoneID > 0 {
+		zoneCodes, err := b.zoneRepo.GetFilterCodes(ctx, s.addAptSubzoneID)
 		if err != nil {
 			log.Printf("wizardSaveApartment GetFilterCodes: %v", err)
 		} else {
@@ -628,8 +665,8 @@ func (b *Bot) startEditApartment(ctx context.Context, chatID int64, msgID int, a
 	}
 
 	zoneID := 0
-	if apt.ZoneID != nil {
-		zoneID = *apt.ZoneID
+	if apt.SubzoneID != nil {
+		zoneID = *apt.SubzoneID
 	}
 
 	b.mu.Lock()
@@ -639,7 +676,7 @@ func (b *Bot) startEditApartment(ctx context.Context, chatID int64, msgID int, a
 	s.addAptTitle = apt.Title
 	s.addAptDesc = apt.Description
 	s.addAptAddr = apt.Address
-	s.addAptZoneID = zoneID
+	s.addAptSubzoneID = zoneID
 	s.addAptRooms = apt.Rooms
 	s.addAptPrice = apt.PricePerNight
 	s.addAptPhotoIDs = nil
@@ -677,3 +714,4 @@ func strDefault(s, def string) string {
 	}
 	return s
 }
+

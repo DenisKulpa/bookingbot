@@ -47,11 +47,14 @@ const (
 	callbackAddApartment      = "add_apartment"
 	callbackEditApartment     = "edit_apt:"
 	callbackDeletePhoto       = "del_photo:"
+	callbackCity              = "city:"
 )
 
 // ─── Filter data (загружается из БД при старте) ─────────────────────────────
 
-func filterListText(filters map[string]bool) string {
+func (b *Bot) filterListText(chatID int64) string {
+	city := b.getCity(chatID)
+	filters := b.activeFilters(chatID)
 	count := 0
 	for _, v := range filters {
 		if v {
@@ -59,9 +62,9 @@ func filterListText(filters map[string]bool) string {
 		}
 	}
 	if count == 0 {
-		return "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:"
+		return fmt.Sprintf("🏖 *Поиск жилья — %s*\n\nВыберите категорию:", city)
 	}
-	return fmt.Sprintf("🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыбрано фильтров: *%d*\nВыберите категорию:", count)
+	return fmt.Sprintf("🏖 *Поиск жилья — %s*\n\nВыбрано фильтров: *%d*\nВыберите категорию:", city, count)
 }
 
 func (b *Bot) filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboardButton {
@@ -97,7 +100,17 @@ func (b *Bot) filterListRows(filters map[string]bool) [][]tgbotapi.InlineKeyboar
 			tgbotapi.NewInlineKeyboardButtonData("✖️ Сбросить фильтры", callbackReset),
 		))
 	}
+	if b.cityCount() > 1 {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏙 Сменить город", "city:back"),
+		))
+	}
 	return rows
+}
+
+func (b *Bot) cityCount() int {
+	cities, _ := b.zoneRepo.GetCities(context.Background())
+	return len(cities)
 }
 
 // ─── Bot ──────────────────────────────────────────────────────────────────────
@@ -135,6 +148,7 @@ func NewBot(client *Client, zoneRepo *repository.ZoneRepository, aptRepo *reposi
 
 type session struct {
 	filters map[string]bool
+	city    string
 	// Бронирование
 	bookingStep  int
 	bookingAptID int
@@ -146,15 +160,15 @@ type session struct {
 	chatAptTitle    string
 	replyToClientID int64
 	// Визард добавления квартиры (0=нет, 1=title, 2=desc, 3=addr, 4=zone, 5=rooms, 6=price, 7=photos, 8=filters, 9=confirm)
-	addAptStep     int
-	addAptTitle    string
-	addAptDesc     string
-	addAptAddr     string
-	addAptZoneID   int
-	addAptRooms    int
-	addAptPrice    float64
-	addAptPhotoIDs []string
-	addAptFilters  map[string]bool
+	addAptStep      int
+	addAptTitle     string
+	addAptDesc      string
+	addAptAddr      string
+	addAptSubzoneID int
+	addAptRooms     int
+	addAptPrice     float64
+	addAptPhotoIDs  []string
+	addAptFilters   map[string]bool
 	// Редактирование квартиры (0=нет, 1=title, 2=desc, 3=addr, 4=price)
 	editAptID   int
 	editAptStep int
@@ -185,7 +199,11 @@ func (b *Bot) toggleFilter(chatID int64, code string) {
 func (b *Bot) resetFilters(chatID int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.sessions[chatID] = &session{filters: make(map[string]bool)}
+	city := ""
+	if s, ok := b.sessions[chatID]; ok {
+		city = s.city
+	}
+	b.sessions[chatID] = &session{filters: make(map[string]bool), city: city}
 }
 
 func (b *Bot) activeFilters(chatID int64) map[string]bool {
@@ -277,21 +295,21 @@ func (b *Bot) cmdStart(ctx context.Context, msg *tgbotapi.Message) {
 		return
 	}
 
-	text := fmt.Sprintf("👋 Привет, *%s*\\!\n\nЯ помогу найти и забронировать квартиру в Одессе\\.", escapeMarkdownV2(name))
+	text := fmt.Sprintf("👋 Привет, *%s*\\!\n\nЯ помогу найти и забронировать квартиру\\.", escapeMarkdownV2(name))
 	_ = b.client.sendMarkdownV2(msg.Chat.ID, text)
-	b.sendFilterList(msg.Chat.ID)
+	b.sendCityList(ctx, msg.Chat.ID)
 }
 
 func (b *Bot) cmdHelp(_ context.Context, msg *tgbotapi.Message) {
 	text := "*Список команд:*\n\n" +
 		"/start — приветствие\n" +
-		"/search — поиск жилья в Аркадии по фильтрам\n" +
+		"/search — поиск жилья по фильтрам\n" +
 		"/help — это сообщение"
 	_ = b.client.sendMarkdownV2(msg.Chat.ID, text)
 }
 
-func (b *Bot) cmdSearch(_ context.Context, msg *tgbotapi.Message) {
-	b.sendFilterList(msg.Chat.ID)
+func (b *Bot) cmdSearch(ctx context.Context, msg *tgbotapi.Message) {
+	b.sendCityList(ctx, msg.Chat.ID)
 }
 
 // ─── Callbacks ───────────────────────────────────────────────────────────────
@@ -305,6 +323,17 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 
 	switch {
 	// ── New filter flow ──
+	case strings.HasPrefix(data, callbackCity):
+		payload := strings.TrimPrefix(data, callbackCity)
+		if payload == "back" {
+			b.sendCityList(ctx, chatID)
+			_ = b.client.DeleteMessage(chatID, msgID)
+		} else {
+			b.selectCity(chatID, payload)
+			b.sendFilterList(chatID)
+			_ = b.client.DeleteMessage(chatID, msgID)
+		}
+
 	case data == callbackBackFilters:
 		b.editFilterList(chatID, msgID)
 
@@ -430,16 +459,69 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	}
 }
 
+// ─── City selection ───────────────────────────────────────────────────────────
+
+func (b *Bot) sendCityList(ctx context.Context, chatID int64) {
+	cities, err := b.zoneRepo.GetCities(ctx)
+	if err != nil || len(cities) == 0 {
+		_ = b.client.SendMessage(chatID, "❌ Нет доступных городов.")
+		return
+	}
+	// Если город один — сразу выбираем его и показываем фильтры
+	if len(cities) == 1 {
+		b.selectCity(chatID, cities[0].Name)
+		b.sendFilterList(chatID)
+		return
+	}
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, c := range cities {
+		label := c.Name
+		if c.Emoji != "" {
+			label = c.Emoji + " " + c.Name
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, callbackCity+c.Name),
+		))
+	}
+	_ = b.client.SendMessageWithKeyboard(chatID, "🏙 *Выберите город:*", rows)
+}
+
+func (b *Bot) selectCity(chatID int64, city string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.sessions[chatID]
+	if s == nil {
+		s = &session{filters: make(map[string]bool)}
+		b.sessions[chatID] = s
+	}
+	s.city = city
+	s.filters = make(map[string]bool)
+}
+
+func (b *Bot) getCity(chatID int64) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if s, ok := b.sessions[chatID]; ok && s.city != "" {
+		return s.city
+	}
+	// Берём первый активный город из БД
+	cities, _ := b.zoneRepo.GetCities(context.Background())
+	if len(cities) > 0 {
+		return cities[0].Name
+	}
+	return "Одесса"
+}
+
 // ─── Filter screens ───────────────────────────────────────────────────────────
 
 func (b *Bot) sendFilterList(chatID int64) {
 	filters := b.activeFilters(chatID)
-	_ = b.client.SendMessageWithKeyboard(chatID, filterListText(filters), b.filterListRows(filters))
+	_ = b.client.SendMessageWithKeyboard(chatID, b.filterListText(chatID), b.filterListRows(filters))
 }
 
 func (b *Bot) editFilterList(chatID int64, msgID int) {
 	filters := b.activeFilters(chatID)
-	_ = b.client.EditMessage(chatID, msgID, filterListText(filters), b.filterListRows(filters))
+	_ = b.client.EditMessage(chatID, msgID, b.filterListText(chatID), b.filterListRows(filters))
 }
 
 func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
@@ -454,8 +536,18 @@ func (b *Bot) editFilterOptions(chatID int64, msgID int, catCode string) {
 		return
 	}
 	filters := b.activeFilters(chatID)
+	city := b.getCity(chatID)
+
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, opt := range cat.Options {
+		// Для категории "location" показываем только зоны выбранного города
+		if catCode == "location" {
+			if cityCodes, _ := b.zoneRepo.GetCityFilterCodes(context.Background(), city); cityCodes != nil {
+				if !cityCodes[opt.Code] {
+					continue
+				}
+			}
+		}
 		var label string
 		if filters[opt.Code] {
 			label = "✔️  " + opt.Label
@@ -504,7 +596,7 @@ func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
 	if len(selectedCodes) > 0 {
-		apts, err := b.aptRepo.GetByFilters(ctx, selectedCodes)
+		apts, err := b.aptRepo.GetByFilters(ctx, b.getCity(chatID), selectedCodes)
 		if err != nil || len(apts) == 0 {
 			_ = b.client.EditMessage(chatID, msgID,
 				"😔 По выбранным фильтрам квартир не найдено.",
@@ -527,7 +619,7 @@ func (b *Bot) editSearchResults(ctx context.Context, chatID int64, msgID int) {
 		}
 	} else {
 		// Без фильтров — первые 10 + общее количество + предложение уточнить
-		apts, total, err := b.aptRepo.GetAllAvailableLimited(ctx, 10)
+		apts, total, err := b.aptRepo.GetAllAvailableLimited(ctx, b.getCity(chatID), 10)
 		if err != nil || len(apts) == 0 {
 			_ = b.client.EditMessage(chatID, msgID, "😔 Нет доступных квартир.", nil)
 			return

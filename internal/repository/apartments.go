@@ -17,15 +17,15 @@ func NewApartmentRepository(db *sql.DB) *ApartmentRepository {
 	return &ApartmentRepository{db: db}
 }
 
-func (r *ApartmentRepository) GetByZone(ctx context.Context, zoneID int, onlyAvailable bool) ([]*model.Apartment, error) {
+func (r *ApartmentRepository) GetByZone(ctx context.Context, SubzoneID int, onlyAvailable bool) ([]*model.Apartment, error) {
 	q := `
-		SELECT id, owner_id, zone_id, title, description, address,
+		SELECT id, owner_id, subzone_id, title, description, address,
 		       rooms, max_guests, price_per_night, photos, amenities,
 		       is_available, created_at, updated_at
 		FROM apartments
-		WHERE zone_id = $1
+		WHERE subzone_id = $1
 	`
-	args := []any{zoneID}
+	args := []any{SubzoneID}
 	if onlyAvailable {
 		q += " AND is_available = true"
 	}
@@ -33,24 +33,32 @@ func (r *ApartmentRepository) GetByZone(ctx context.Context, zoneID int, onlyAva
 	return r.queryArgs(ctx, q, args...)
 }
 
-// GetByFilters возвращает квартиры, соответствующие фильтрам.
-// Внутри одной категории — ИЛИ (любой из выбранных), между категориями — И (все категории).
-// Если filterCodes пустой — возвращает все доступные квартиры.
-func (r *ApartmentRepository) GetByFilters(ctx context.Context, filterCodes []string) ([]*model.Apartment, error) {
+// GetByFilters возвращает квартиры по фильтрам в указанном городе.
+// city="" — без фильтрации по городу.
+func (r *ApartmentRepository) GetByFilters(ctx context.Context, city string, filterCodes []string) ([]*model.Apartment, error) {
+	cityID, err := r.resolveCityID(ctx, city)
+	if err != nil {
+		return nil, err
+	}
 	if len(filterCodes) == 0 {
-		return r.GetAllAvailable(ctx)
+		return r.GetAllAvailable(ctx, cityID)
 	}
 
-	// Группируем коды по категориям (через БД)
 	catMap, err := r.groupByCategory(ctx, filterCodes)
 	if err != nil {
 		return nil, err
 	}
 
-	// Строим условия: для каждой категории — EXISTS (хотя бы один код совпал)
 	var conditions []string
 	args := make([]any, 0)
 	argIdx := 0
+
+	if cityID > 0 {
+		argIdx++
+		conditions = append(conditions, fmt.Sprintf(`a.city_id = $%d`, argIdx))
+		args = append(args, cityID)
+	}
+
 	for _, codes := range catMap {
 		phs := make([]string, len(codes))
 		for i, code := range codes {
@@ -62,89 +70,100 @@ func (r *ApartmentRepository) GetByFilters(ctx context.Context, filterCodes []st
 			EXISTS (
 				SELECT 1 FROM apartment_filters af
 				JOIN filter_options fo ON fo.id = af.filter_option_id
-				WHERE af.apartment_id = a.id
-				  AND fo.code IN (%s)
+				WHERE af.apartment_id = a.id AND fo.code IN (%s)
 			)`, strings.Join(phs, ",")))
 	}
 
 	q := fmt.Sprintf(`
-		SELECT a.id, a.owner_id, a.zone_id, a.title, a.description, a.address,
+		SELECT a.id, a.owner_id, a.subzone_id, a.city_id, a.title, a.description, a.address,
 		       a.rooms, a.max_guests, a.price_per_night, a.photos, a.amenities,
 		       a.is_available, a.created_at, a.updated_at
 		FROM apartments a
-		WHERE a.is_available = true
-		  AND %s
+		WHERE a.is_available = true AND %s
 		ORDER BY a.id ASC
 	`, strings.Join(conditions, " AND "))
 
 	return r.queryArgs(ctx, q, args...)
 }
 
-// groupByCategory возвращает map[categoryCode][]filterCode
-func (r *ApartmentRepository) groupByCategory(ctx context.Context, codes []string) (map[string][]string, error) {
-	placeholders := make([]string, len(codes))
-	args := make([]any, len(codes))
-	for i, c := range codes {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = c
+func (r *ApartmentRepository) resolveCityID(ctx context.Context, city string) (int, error) {
+	if city == "" {
+		return 0, nil
 	}
-	q := fmt.Sprintf(`
-		SELECT DISTINCT fc.code, fo.code
-		FROM filter_options fo
-		JOIN filter_categories fc ON fc.id = fo.category_id
-		WHERE fo.code IN (%s)
-	`, strings.Join(placeholders, ","))
+	var id int
+	err := r.db.QueryRowContext(ctx, `SELECT id FROM cities WHERE name = $1`, city).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return id, err
+}
 
-	rows, err := r.db.QueryContext(ctx, q, args...)
+// GetAllAvailable возвращает доступные квартиры в городе (cityID=0 — все).
+func (r *ApartmentRepository) GetAllAvailable(ctx context.Context, cityID int) ([]*model.Apartment, error) {
+	return r.queryAvailable(ctx, cityID, 0)
+}
+
+func (r *ApartmentRepository) GetAllAvailableLimited(ctx context.Context, city string, limit int) ([]*model.Apartment, int, error) {
+	cityID, err := r.resolveCityID(ctx, city)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string][]string)
-	for rows.Next() {
-		var catCode, optCode string
-		if err := rows.Scan(&catCode, &optCode); err != nil {
-			return nil, err
-		}
-		result[catCode] = append(result[catCode], optCode)
-	}
-	return result, rows.Err()
-}
-
-// GetAllAvailable возвращает все доступные квартиры (без привязки к конкретной зоне).
-func (r *ApartmentRepository) GetAllAvailable(ctx context.Context) ([]*model.Apartment, error) {
-	return r.queryArgs(ctx, `
-		SELECT id, owner_id, zone_id, title, description, address,
-		       rooms, max_guests, price_per_night, photos, amenities,
-		       is_available, created_at, updated_at
-		FROM apartments
-		WHERE is_available = true
-		ORDER BY id ASC
-	`)
-}
-
-// GetAllAvailableLimited возвращает первые limit доступных квартир и общее количество.
-func (r *ApartmentRepository) GetAllAvailableLimited(ctx context.Context, limit int) ([]*model.Apartment, int, error) {
-	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM apartments WHERE is_available = true`).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	apts, err := r.queryArgs(ctx, `
-		SELECT id, owner_id, zone_id, title, description, address,
-		       rooms, max_guests, price_per_night, photos, amenities,
-		       is_available, created_at, updated_at
-		FROM apartments
-		WHERE is_available = true
-		ORDER BY id ASC
-		LIMIT $1
-	`, limit)
+	return r.getAllAvailableLimited(ctx, cityID, limit)
+}
+
+func (r *ApartmentRepository) getAllAvailableLimited(ctx context.Context, cityID int, limit int) ([]*model.Apartment, int, error) {
+	where := "WHERE a.is_available = true"
+	args := make([]any, 0)
+	argIdx := 1
+	if cityID > 0 {
+		where += fmt.Sprintf(` AND a.city_id = $%d`, argIdx)
+		args = append(args, cityID)
+		argIdx++
+	}
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM apartments a `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, limit)
+	apts, err := r.queryArgs(ctx, fmt.Sprintf(`
+		SELECT a.id, a.owner_id, a.subzone_id, a.city_id, a.title, a.description, a.address,
+		       a.rooms, a.max_guests, a.price_per_night, a.photos, a.amenities,
+		       a.is_available, a.created_at, a.updated_at
+		FROM apartments a
+		%s
+		ORDER BY a.id ASC
+		LIMIT $%d
+	`, where, argIdx), args...)
 	return apts, total, err
+}
+
+func (r *ApartmentRepository) queryAvailable(ctx context.Context, cityID int, limit int) ([]*model.Apartment, error) {
+	where := "WHERE a.is_available = true"
+	args := make([]any, 0)
+	argIdx := 1
+	if cityID > 0 {
+		where += fmt.Sprintf(` AND a.city_id = $%d`, argIdx)
+		args = append(args, cityID)
+		argIdx++
+	}
+	q := fmt.Sprintf(`
+		SELECT a.id, a.owner_id, a.subzone_id, a.city_id, a.title, a.description, a.address,
+		       a.rooms, a.max_guests, a.price_per_night, a.photos, a.amenities,
+		       a.is_available, a.created_at, a.updated_at
+		FROM apartments a
+		%s
+		ORDER BY a.id ASC
+	`, where)
+	if limit > 0 {
+		q += fmt.Sprintf(` LIMIT $%d`, argIdx)
+		args = append(args, limit)
+	}
+	return r.queryArgs(ctx, q, args...)
 }
 
 func (r *ApartmentRepository) GetByID(ctx context.Context, id int) (*model.Apartment, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, owner_id, zone_id, title, description, address,
+		SELECT id, owner_id, subzone_id, title, description, address,
 		       rooms, max_guests, price_per_night, photos, amenities,
 		       is_available, created_at, updated_at
 		FROM apartments
@@ -153,14 +172,15 @@ func (r *ApartmentRepository) GetByID(ctx context.Context, id int) (*model.Apart
 
 	a := &model.Apartment{}
 	var (
-		zoneID       sql.NullInt64
+		SubzoneID    sql.NullInt64
+		cityID       sql.NullInt64
 		description  sql.NullString
 		address      sql.NullString
 		photosRaw    string
 		amenitiesRaw string
 	)
 	if err := row.Scan(
-		&a.ID, &a.OwnerID, &zoneID,
+		&a.ID, &a.OwnerID, &SubzoneID, &cityID,
 		&a.Title, &description, &address,
 		&a.Rooms, &a.MaxGuests, &a.PricePerNight,
 		&photosRaw, &amenitiesRaw,
@@ -168,9 +188,9 @@ func (r *ApartmentRepository) GetByID(ctx context.Context, id int) (*model.Apart
 	); err != nil {
 		return nil, err
 	}
-	if zoneID.Valid {
-		id := int(zoneID.Int64)
-		a.ZoneID = &id
+	if SubzoneID.Valid {
+		id := int(SubzoneID.Int64)
+		a.SubzoneID = &id
 	}
 	if description.Valid {
 		a.Description = description.String
@@ -209,7 +229,8 @@ func (r *ApartmentRepository) queryArgs(ctx context.Context, q string, args ...a
 func scanApartment(rows *sql.Rows) (*model.Apartment, error) {
 	a := &model.Apartment{}
 	var (
-		zoneID       sql.NullInt64
+		SubzoneID    sql.NullInt64
+		cityID       sql.NullInt64
 		description  sql.NullString
 		address      sql.NullString
 		photosRaw    string
@@ -217,7 +238,7 @@ func scanApartment(rows *sql.Rows) (*model.Apartment, error) {
 	)
 
 	if err := rows.Scan(
-		&a.ID, &a.OwnerID, &zoneID,
+		&a.ID, &a.OwnerID, &SubzoneID, &cityID,
 		&a.Title, &description, &address,
 		&a.Rooms, &a.MaxGuests, &a.PricePerNight,
 		&photosRaw, &amenitiesRaw,
@@ -226,9 +247,13 @@ func scanApartment(rows *sql.Rows) (*model.Apartment, error) {
 		return nil, err
 	}
 
-	if zoneID.Valid {
-		id := int(zoneID.Int64)
-		a.ZoneID = &id
+	if SubzoneID.Valid {
+		id := int(SubzoneID.Int64)
+		a.SubzoneID = &id
+	}
+	if cityID.Valid {
+		id := int(cityID.Int64)
+		a.CityID = &id
 	}
 	if description.Valid {
 		a.Description = description.String
@@ -247,19 +272,21 @@ func scanApartment(rows *sql.Rows) (*model.Apartment, error) {
 }
 
 // Create создаёт новую квартиру.
-func (r *ApartmentRepository) Create(ctx context.Context, ownerID int, zoneID *int, title, description, address, apartmentType string, rooms, maxGuests int, price float64) (*model.Apartment, error) {
+func (r *ApartmentRepository) Create(ctx context.Context, ownerID int, SubzoneID *int, title, description, address, apartmentType string, rooms, maxGuests int, price float64) (*model.Apartment, error) {
 	var zoneVal interface{}
-	if zoneID != nil {
-		zoneVal = *zoneID
+	if SubzoneID != nil {
+		zoneVal = *SubzoneID
 	}
 	var typeVal interface{}
 	if apartmentType != "" {
 		typeVal = apartmentType
 	}
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO apartments (owner_id, zone_id, title, description, address, apartment_type, rooms, max_guests, price_per_night)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, owner_id, zone_id, title, description, address,
+		INSERT INTO apartments (owner_id, subzone_id, city_id, title, description, address, apartment_type, rooms, max_guests, price_per_night)
+		SELECT $1, $2, c.id, $3, $4, $5, $6, $7, $8, $9
+		FROM subzones s JOIN zones z ON z.id = s.zone_id JOIN cities c ON c.id = z.city_id
+		WHERE s.id = $2
+		RETURNING id, owner_id, subzone_id, city_id, title, description, address,
 		          rooms, max_guests, price_per_night, photos, amenities,
 		          is_available, created_at, updated_at
 	`, ownerID, zoneVal, title, description, address, typeVal, rooms, maxGuests, price)
@@ -267,13 +294,14 @@ func (r *ApartmentRepository) Create(ctx context.Context, ownerID int, zoneID *i
 	a := &model.Apartment{}
 	var (
 		zID          sql.NullInt64
+		cID          sql.NullInt64
 		desc         sql.NullString
 		addr         sql.NullString
 		photosRaw    string
 		amenitiesRaw string
 	)
 	if err := row.Scan(
-		&a.ID, &a.OwnerID, &zID,
+		&a.ID, &a.OwnerID, &zID, &cID,
 		&a.Title, &desc, &addr,
 		&a.Rooms, &a.MaxGuests, &a.PricePerNight,
 		&photosRaw, &amenitiesRaw,
@@ -283,7 +311,11 @@ func (r *ApartmentRepository) Create(ctx context.Context, ownerID int, zoneID *i
 	}
 	if zID.Valid {
 		id := int(zID.Int64)
-		a.ZoneID = &id
+		a.SubzoneID = &id
+	}
+	if cID.Valid {
+		id := int(cID.Int64)
+		a.CityID = &id
 	}
 	if desc.Valid {
 		a.Description = desc.String
@@ -317,7 +349,7 @@ func (r *ApartmentRepository) AddFilters(ctx context.Context, apartmentID int, f
 // GetByOwner возвращает все квартиры арендодателя по его internal user id.
 func (r *ApartmentRepository) GetByOwner(ctx context.Context, ownerID int) ([]*model.Apartment, error) {
 	return r.queryArgs(ctx, `
-		SELECT id, owner_id, zone_id, title, description, address,
+		SELECT id, owner_id, subzone_id, title, description, address,
 		       rooms, max_guests, price_per_night, photos, amenities,
 		       is_available, created_at, updated_at
 		FROM apartments WHERE owner_id = $1 ORDER BY id DESC
@@ -335,10 +367,10 @@ func (r *ApartmentRepository) Update(ctx context.Context, a *model.Apartment) er
 }
 
 // UpdateFull обновляет все редактируемые поля квартиры (включая zone, rooms, тип).
-func (r *ApartmentRepository) UpdateFull(ctx context.Context, id int, zoneID *int, title, description, address, apartmentType string, rooms int, price float64) (int64, error) {
+func (r *ApartmentRepository) UpdateFull(ctx context.Context, id int, SubzoneID *int, title, description, address, apartmentType string, rooms int, price float64) (int64, error) {
 	var zoneVal interface{}
-	if zoneID != nil {
-		zoneVal = *zoneID
+	if SubzoneID != nil {
+		zoneVal = *SubzoneID
 	}
 	var typeVal interface{}
 	if apartmentType != "" {
@@ -346,7 +378,8 @@ func (r *ApartmentRepository) UpdateFull(ctx context.Context, id int, zoneID *in
 	}
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE apartments
-		SET zone_id = $1, title = $2, description = $3, address = $4,
+		SET subzone_id = $1, city_id = (SELECT c.id FROM subzones s JOIN zones z ON z.id = s.zone_id JOIN cities c ON c.id = z.city_id WHERE s.id = $1),
+		    title = $2, description = $3, address = $4,
 		    apartment_type = $5, rooms = $6, max_guests = $7, price_per_night = $8,
 		    updated_at = NOW()
 		WHERE id = $9
@@ -417,6 +450,28 @@ func (r *ApartmentRepository) GetAllCategories(ctx context.Context) ([]model.Fil
 	var result []model.FilterCategory
 	for _, code := range catOrder {
 		result = append(result, *catMap[code])
+	}
+	return result, rows.Err()
+}
+
+
+
+func (r *ApartmentRepository) groupByCategory(ctx context.Context, codes []string) (map[string][]string, error) {
+	phs := make([]string, len(codes))
+	args := make([]any, len(codes))
+	for i, c := range codes {
+		phs[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = c
+	}
+	q := fmt.Sprintf("SELECT DISTINCT fc.code, fo.code FROM filter_options fo JOIN filter_categories fc ON fc.id = fo.category_id WHERE fo.code IN (%s)", strings.Join(phs, ","))
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	result := make(map[string][]string)
+	for rows.Next() {
+		var catCode, optCode string
+		if err := rows.Scan(&catCode, &optCode); err != nil { return nil, err }
+		result[catCode] = append(result[catCode], optCode)
 	}
 	return result, rows.Err()
 }

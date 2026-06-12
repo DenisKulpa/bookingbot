@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS apartments (
     id               SERIAL PRIMARY KEY,
     owner_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    zone_id          INTEGER REFERENCES zones(id) ON DELETE SET NULL,
+    subzone_id       INTEGER REFERENCES subzones(id) ON DELETE SET NULL,
+    city_id          INTEGER REFERENCES cities(id) ON DELETE SET NULL,
     title            TEXT NOT NULL,
     description      TEXT,
     address          TEXT,
@@ -16,7 +17,8 @@ CREATE TABLE IF NOT EXISTS apartments (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_apartments_zone_id ON apartments(zone_id);
+CREATE INDEX IF NOT EXISTS idx_apartments_subzone_id ON apartments(subzone_id);
+CREATE INDEX IF NOT EXISTS idx_apartments_city_id ON apartments(city_id);
 CREATE INDEX IF NOT EXISTS idx_apartments_owner_id ON apartments(owner_id);
 CREATE INDEX IF NOT EXISTS idx_apartments_is_available ON apartments(is_available);
 CREATE INDEX IF NOT EXISTS idx_apartments_price ON apartments(price_per_night);

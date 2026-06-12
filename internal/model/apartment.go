@@ -8,7 +8,8 @@ import (
 type Apartment struct {
 	ID           int       `json:"id"`
 	OwnerID      int       `json:"owner_id"`
-	ZoneID       *int      `json:"zone_id,omitempty"`
+	SubzoneID     *int      `json:"subzone_id,omitempty"`
+	CityID        *int      `json:"city_id,omitempty"`
 	Title        string    `json:"title"`
 	Description  string    `json:"description,omitempty"`
 	Address      string    `json:"address,omitempty"`

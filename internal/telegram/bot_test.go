@@ -43,10 +43,13 @@ func TestFindCategoryByFilterCode(t *testing.T) {
 }
 
 func TestFilterListText(t *testing.T) {
-	if got := filterListText(map[string]bool{}); got != "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыберите категорию:" {
+	b := &Bot{sessions: make(map[int64]*session)}
+	b.sessions[0] = &session{filters: make(map[string]bool), city: "Одесса"}
+	if got := b.filterListText(0); got != "🏖 *Поиск жилья — Одесса*\n\nВыберите категорию:" {
 		t.Fatalf("unexpected text without filters: %q", got)
 	}
-	if got := filterListText(map[string]bool{"a": true, "b": false}); got != "🏖 *Поиск жилья в Аркадии по фильтрам*\n\nВыбрано фильтров: *1*\nВыберите категорию:" {
+	b.sessions[0].filters["a"] = true
+	if got := b.filterListText(0); got != "🏖 *Поиск жилья — Одесса*\n\nВыбрано фильтров: *1*\nВыберите категорию:" {
 		t.Fatalf("unexpected text with filters: %q", got)
 	}
 }
